@@ -20,6 +20,7 @@ import { IataDelayPickerModal } from '../Common/IataDelayPickerModal';
 import {
   Plus,
   Trash2,
+  X,
   XCircle,
   FileText,
   FileSpreadsheet,
