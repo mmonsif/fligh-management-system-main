@@ -390,8 +390,8 @@ export default function App() {
     const freq = template.schedule?.frequency || 'Daily';
     const allowedDays = (template.schedule?.daysOfWeek || '1,2,3,4,5,6,7').split(',');
 
-    const start = new Date(startDateStr);
-    const end = new Date(endDateStr);
+    const start = new Date(`${startDateStr}T00:00:00.000Z`);
+    const end = new Date(`${endDateStr}T23:59:59.999Z`);
     let current = new Date(start);
 
     const generated: Flight[] = [];
@@ -403,9 +403,9 @@ export default function App() {
       const dayCode = jsDay === 0 ? '7' : String(jsDay);
 
       if (freq === 'Daily' || allowedDays.includes(dayCode)) {
-        const year = current.getFullYear();
-        const month = String(current.getMonth() + 1).padStart(2, '0');
-        const day = String(current.getDate()).padStart(2, '0');
+        const year = current.getUTCFullYear();
+        const month = String(current.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(current.getUTCDate()).padStart(2, '0');
         const datePrefix = `${year}-${month}-${day}`;
 
         const staIso = `${datePrefix}T${template.staTimeOfDay}:00Z`;
@@ -444,7 +444,7 @@ export default function App() {
       }
 
       // Next day
-      current.setDate(current.getDate() + 1);
+      current.setUTCDate(current.getUTCDate() + 1);
     }
 
     if (generated.length > 0) {

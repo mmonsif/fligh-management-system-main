@@ -35,9 +35,8 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
 
   // Filter flights within selected date range
   const periodFlights = useMemo(() => {
-    const fromTime = new Date(dateFrom).getTime();
-    // End of selected day
-    const toTime = new Date(dateTo).getTime() + 86400000 - 1;
+    const fromTime = new Date(`${dateFrom}T00:00:00.000Z`).getTime();
+    const toTime = new Date(`${dateTo}T23:59:59.999Z`).getTime();
 
     return flights.filter((f) => {
       const t = new Date(f.staUtc).getTime();

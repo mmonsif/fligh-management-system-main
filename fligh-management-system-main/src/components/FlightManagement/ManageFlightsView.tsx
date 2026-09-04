@@ -146,14 +146,20 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       // Clear fields
       setTxtInbound('');
       setTxtOutbound('');
+      setStaUtc('');
+      setStdUtc('');
       setTxtOrigin('');
       setTxtDestination('');
       setTxtVia('');
       setTxtFinalDestination('');
       setRouteQuickInput('');
       setTxtAircraftType('');
+      setSelectedAirlineId(airlines[0]?.airlineId ?? 1);
+      setSelectedAgencyId(agencies[0]?.agencyId ?? 1);
       setChkATA(false);
       setChkATD(false);
+      setAtaUtc('');
+      setAtdUtc('');
       setTxtBags('');
       setTxtIncomingBags('');
       setTxtAdultPax('');
@@ -282,8 +288,8 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       // Date range filter
       if (isFilterActive) {
         const flightTime = new Date(f.staUtc).getTime();
-        const fromTime = new Date(filterFrom).getTime();
-        const toTime = new Date(filterTo).getTime();
+        const fromTime = new Date(parseDateTimeLocalAsUtc(filterFrom) || '').getTime();
+        const toTime = new Date(parseDateTimeLocalAsUtc(filterTo) || '').getTime();
         if (flightTime < fromTime || flightTime > toTime) {
           return false;
         }
@@ -324,6 +330,11 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
   }, [flights, isFilterActive, filterFrom, filterTo, statusFilter, filterTriangleOnly, searchTerm]);
 
   // Handle Add Flight
+  const handleOpenAddFlight = () => {
+    loadFlightIntoForm(null);
+    setIsAddFlightModalOpen(true);
+  };
+
   const handleAddFlightClick = () => {
     if (!txtInbound.trim()) {
       showToast('Please enter an inbound flight number.', 'warning');
@@ -663,7 +674,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
         <div className="flex flex-wrap items-center gap-2">
           {canAddFlight && (
             <button
-              onClick={() => setIsAddFlightModalOpen(true)}
+              onClick={handleOpenAddFlight}
               className="glass-btn-primary inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shadow-sm"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -821,8 +832,8 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
           <div className="text-slate-500 dark:text-slate-400">
             {isFilterActive ? (
               <span className="text-sky-700 dark:text-sky-300 font-medium">
-                🔍 Filtered: Showing flights from <span className="font-mono text-slate-800 dark:text-slate-200">{formatUtcDateTime(filterFrom)}</span> to{' '}
-                <span className="font-mono text-slate-800 dark:text-slate-200">{formatUtcDateTime(filterTo)}</span> UTC ({filteredFlights.length} of {flights.length} flights)
+                🔍 Filtered: Showing flights from <span className="font-mono text-slate-800 dark:text-slate-200">{formatUtcDateTime(parseDateTimeLocalAsUtc(filterFrom))}</span> to{' '}
+                <span className="font-mono text-slate-800 dark:text-slate-200">{formatUtcDateTime(parseDateTimeLocalAsUtc(filterTo))}</span> UTC ({filteredFlights.length} of {flights.length} flights)
               </span>
             ) : (
               <span>Showing all {filteredFlights.length} flights</span>
