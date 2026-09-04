@@ -32,10 +32,15 @@ export interface Flight {
   registration: string;
   remarks: string;
   numberOfBags: number | null;
+  incomingNumberOfBags?: number | null;
   adultPax: number | null;
   childPax: number | null;
   infantPax: number | null;
   totalPax: number | null;
+  incomingAdultPax?: number | null;
+  incomingChildPax?: number | null;
+  incomingInfantPax?: number | null;
+  incomingTotalPax?: number | null;
   delays: FlightDelay[];
   flightStatus: FlightStatus;
   cancellationReason?: string;

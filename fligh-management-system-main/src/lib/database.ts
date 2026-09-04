@@ -68,10 +68,15 @@ type DatabaseFlight = {
   registration: string;
   remarks: string;
   number_of_bags: number | null;
+  incoming_number_of_bags: number | null;
   adult_pax: number | null;
   child_pax: number | null;
   infant_pax: number | null;
   total_pax: number | null;
+  incoming_adult_pax: number | null;
+  incoming_child_pax: number | null;
+  incoming_infant_pax: number | null;
+  incoming_total_pax: number | null;
   delays: Flight['delays'];
   flight_status: Flight['flightStatus'];
   cancellation_reason: string | null;
@@ -151,10 +156,15 @@ export const loadDatabaseSnapshot = async (): Promise<DatabaseSnapshot | null> =
     registration: row.registration,
     remarks: row.remarks,
     numberOfBags: row.number_of_bags,
+    incomingNumberOfBags: row.incoming_number_of_bags,
     adultPax: row.adult_pax,
     childPax: row.child_pax,
     infantPax: row.infant_pax,
     totalPax: row.total_pax,
+    incomingAdultPax: row.incoming_adult_pax,
+    incomingChildPax: row.incoming_child_pax,
+    incomingInfantPax: row.incoming_infant_pax,
+    incomingTotalPax: row.incoming_total_pax,
     delays: row.delays,
     flightStatus: row.flight_status,
     cancellationReason: row.cancellation_reason || undefined,
@@ -241,10 +251,15 @@ export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot) => {
       registration: flight.registration,
       remarks: flight.remarks,
       number_of_bags: flight.numberOfBags,
+      incoming_number_of_bags: flight.incomingNumberOfBags ?? null,
       adult_pax: flight.adultPax,
       child_pax: flight.childPax,
       infant_pax: flight.infantPax,
       total_pax: flight.totalPax,
+      incoming_adult_pax: flight.incomingAdultPax ?? null,
+      incoming_child_pax: flight.incomingChildPax ?? null,
+      incoming_infant_pax: flight.incomingInfantPax ?? null,
+      incoming_total_pax: flight.incomingTotalPax ?? null,
       delays: flight.delays,
       flight_status: flight.flightStatus,
       cancellation_reason: flight.cancellationReason || null,

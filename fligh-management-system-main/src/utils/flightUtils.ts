@@ -55,6 +55,35 @@ export function formatUtcDateTime(dateInput: string | Date | null | undefined): 
   return `${day}/${month}/${year} ${hours}:${minutes}`;
 }
 
+export function parseDateTimeLocalAsUtc(dateInput: string | null | undefined): string | null {
+  if (!dateInput || !dateInput.trim()) return null;
+
+  const cleaned = dateInput.trim();
+
+  const datetimeLocalPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/;
+  if (!datetimeLocalPattern.test(cleaned)) {
+    const parsed = new Date(cleaned);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+
+  const [datePart, timePart] = cleaned.split('T');
+  const [year, month, day] = datePart.split('-');
+  const timeSegments = timePart.split(':');
+  const hours = String(parseInt(timeSegments[0] ?? '0', 10)).padStart(2, '0');
+  const minutes = String(parseInt(timeSegments[1] ?? '0', 10)).padStart(2, '0');
+  const seconds = timeSegments[2] ? String(parseInt(timeSegments[2], 10)).padStart(2, '0') : '00';
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.000Z`;
+}
+
+export function getPassengerTotal(
+  adult: number | null | undefined,
+  child: number | null | undefined,
+  infant: number | null | undefined
+): number {
+  return (adult ?? 0) + (child ?? 0) + (infant ?? 0);
+}
+
 export function formatUtcTimeOnly(dateInput: string | Date | null | undefined): string {
   if (!dateInput) return '--:--';
   const d = new Date(dateInput);

@@ -46,6 +46,21 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
+    const handleSessionCleanup = () => {
+      localStorage.removeItem('fms_user');
+      setUser(null);
+    };
+
+    window.addEventListener('beforeunload', handleSessionCleanup);
+    window.addEventListener('pagehide', handleSessionCleanup);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleSessionCleanup);
+      window.removeEventListener('pagehide', handleSessionCleanup);
+    };
+  }, []);
+
+  useEffect(() => {
     let isMounted = true;
 
     if (!isSupabaseConfigured) return undefined;

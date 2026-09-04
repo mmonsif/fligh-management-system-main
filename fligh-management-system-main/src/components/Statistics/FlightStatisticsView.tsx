@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Flight } from '../../types';
-import { formatUtcDateTime, formatMinutesToHHMM, getStatusBadgeStyle } from '../../utils/flightUtils';
+import { formatUtcDateTime, formatMinutesToHHMM, getStatusBadgeStyle, getPassengerTotal } from '../../utils/flightUtils';
 import { getDelayCodeInfo } from '../../data/iataDelayCodes';
 import { FlightTrendsDashboard } from './FlightTrendsDashboard';
 import {
@@ -56,8 +56,19 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
     const totalAdultPax = periodFlights.reduce((acc, f) => acc + (f.adultPax || 0), 0);
     const totalChildPax = periodFlights.reduce((acc, f) => acc + (f.childPax || 0), 0);
     const totalInfantPax = periodFlights.reduce((acc, f) => acc + (f.infantPax || 0), 0);
-    const totalPax = periodFlights.reduce((acc, f) => acc + (f.totalPax || 0), 0);
-    const totalBags = periodFlights.reduce((acc, f) => acc + (f.numberOfBags || 0), 0);
+    const totalPaxOut = periodFlights.reduce(
+      (acc, f) => acc + (f.totalPax ?? getPassengerTotal(f.adultPax, f.childPax, f.infantPax)),
+      0
+    );
+    const totalIncomingAdultPax = periodFlights.reduce((acc, f) => acc + (f.incomingAdultPax || 0), 0);
+    const totalIncomingChildPax = periodFlights.reduce((acc, f) => acc + (f.incomingChildPax || 0), 0);
+    const totalIncomingInfantPax = periodFlights.reduce((acc, f) => acc + (f.incomingInfantPax || 0), 0);
+    const totalPaxIn = periodFlights.reduce(
+      (acc, f) => acc + (f.incomingTotalPax ?? getPassengerTotal(f.incomingAdultPax, f.incomingChildPax, f.incomingInfantPax)),
+      0
+    );
+    const totalBagsOut = periodFlights.reduce((acc, f) => acc + (f.numberOfBags || 0), 0);
+    const totalBagsIn = periodFlights.reduce((acc, f) => acc + (f.incomingNumberOfBags || 0), 0);
 
     const activeFlights = totalFlights - canceledFlights;
     const completionRate = activeFlights > 0 ? (completedFlights / activeFlights) * 100 : 0;
@@ -70,10 +81,10 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
     const avgDelayMinutes = flightsWithDelays.length > 0 ? totalDelayMinutes / flightsWithDelays.length : 0;
 
     const flightsWithPax = periodFlights.filter((f) => (f.totalPax || 0) > 0);
-    const avgPaxPerFlight = flightsWithPax.length > 0 ? totalPax / flightsWithPax.length : 0;
+    const avgPaxPerFlight = flightsWithPax.length > 0 ? totalPaxOut / flightsWithPax.length : 0;
 
     const flightsWithBags = periodFlights.filter((f) => (f.numberOfBags || 0) > 0);
-    const avgBagsPerFlight = flightsWithBags.length > 0 ? totalBags / flightsWithBags.length : 0;
+    const avgBagsPerFlight = flightsWithBags.length > 0 ? totalBagsOut / flightsWithBags.length : 0;
 
     const uniqueAirlines = new Set(periodFlights.map((f) => f.airlineId)).size;
     const uniqueAgencies = new Set(periodFlights.map((f) => f.agencyId)).size;
@@ -87,8 +98,13 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
       totalAdultPax,
       totalChildPax,
       totalInfantPax,
-      totalPax,
-      totalBags,
+      totalPaxOut,
+      totalIncomingAdultPax,
+      totalIncomingChildPax,
+      totalIncomingInfantPax,
+      totalPaxIn,
+      totalBagsOut,
+      totalBagsIn,
       completionRate,
       onTimeRate,
       delayRate,
@@ -137,7 +153,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
       if (f.flightStatus === 'Canceled') item.canceled += 1;
       if (f.delayMinutesTotal > 0 && f.flightStatus !== 'Canceled') item.delayed += 1;
       if (f.delayMinutesTotal === 0 && f.flightStatus === 'Completed') item.onTime += 1;
-      item.totalPax += f.totalPax || 0;
+      item.totalPax += f.totalPax ?? getPassengerTotal(f.adultPax, f.childPax, f.infantPax);
       item.totalBags += f.numberOfBags || 0;
     });
 
@@ -185,7 +201,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
       item.total += 1;
       if (f.flightStatus === 'Canceled') item.canceled += 1;
       if (f.flightStatus === 'Completed') item.completed += 1;
-      item.totalPax += f.totalPax || 0;
+      item.totalPax += f.totalPax ?? getPassengerTotal(f.adultPax, f.childPax, f.infantPax);
       item.totalBags += f.numberOfBags || 0;
     });
 
@@ -245,8 +261,10 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
     csvContent += `Total Adult Pax,${stats.totalAdultPax}\r\n`;
     csvContent += `Total Child Pax,${stats.totalChildPax}\r\n`;
     csvContent += `Total Infant Pax,${stats.totalInfantPax}\r\n`;
-    csvContent += `Total Passengers,${stats.totalPax}\r\n`;
-    csvContent += `Total Bags,${stats.totalBags}\r\n`;
+    csvContent += `Total Passengers Out,${stats.totalPaxOut}\r\n`;
+    csvContent += `Total Passengers In,${stats.totalPaxIn}\r\n`;
+    csvContent += `Total Bags Out,${stats.totalBagsOut}\r\n`;
+    csvContent += `Total Bags In,${stats.totalBagsIn}\r\n`;
     csvContent += `Completion Rate,${stats.completionRate.toFixed(1)}%\r\n`;
     csvContent += `On-Time Rate,${stats.onTimeRate.toFixed(1)}%\r\n`;
     csvContent += `Delay Rate,${stats.delayRate.toFixed(1)}%\r\n`;
@@ -409,18 +427,34 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
 
         <div className="p-3.5 glass-card-sub rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
           <div>
-            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Total Bags Checked</span>
-            <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.totalBags.toLocaleString()} pcs</span>
+            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Bags Out</span>
+            <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.totalBagsOut.toLocaleString()} pcs</span>
           </div>
           <Luggage className="w-5 h-5 text-sky-600 dark:text-sky-400" />
         </div>
 
         <div className="p-3.5 glass-card-sub rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
           <div>
-            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Total Passengers</span>
-            <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.totalPax.toLocaleString()}</span>
+            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Pax Out</span>
+            <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.totalPaxOut.toLocaleString()}</span>
           </div>
           <Users className="w-5 h-5 text-sky-600 dark:text-sky-400" />
+        </div>
+
+        <div className="p-3.5 glass-card-sub rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
+          <div>
+            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Pax In</span>
+            <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.totalPaxIn.toLocaleString()}</span>
+          </div>
+          <Users className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+        </div>
+
+        <div className="p-3.5 glass-card-sub rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
+          <div>
+            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Bags In</span>
+            <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.totalBagsIn.toLocaleString()} pcs</span>
+          </div>
+          <Luggage className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
         </div>
 
         <div className="p-3.5 glass-card-sub rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
@@ -579,12 +613,20 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                       <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-200">{stats.totalInfantPax.toLocaleString()}</td>
                     </tr>
                     <tr>
-                      <td className="p-3 font-sans font-medium text-slate-700 dark:text-slate-200">👥 Total Passengers Carried</td>
-                      <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-200">{stats.totalPax.toLocaleString()}</td>
+                      <td className="p-3 font-sans font-medium text-slate-700 dark:text-slate-200">👥 Total Passengers Out</td>
+                      <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-200">{stats.totalPaxOut.toLocaleString()}</td>
                     </tr>
                     <tr>
-                      <td className="p-3 font-sans font-medium text-slate-700 dark:text-slate-200">🎒 Total Baggage Pieces</td>
-                      <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-200">{stats.totalBags.toLocaleString()}</td>
+                      <td className="p-3 font-sans font-medium text-slate-700 dark:text-slate-200">👥 Total Passengers In</td>
+                      <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-200">{stats.totalPaxIn.toLocaleString()}</td>
+                    </tr>
+                    <tr>
+                      <td className="p-3 font-sans font-medium text-slate-700 dark:text-slate-200">🎒 Total Bags Out</td>
+                      <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-200">{stats.totalBagsOut.toLocaleString()}</td>
+                    </tr>
+                    <tr>
+                      <td className="p-3 font-sans font-medium text-slate-700 dark:text-slate-200">🎒 Total Bags In</td>
+                      <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-200">{stats.totalBagsIn.toLocaleString()}</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-sans font-medium text-slate-700 dark:text-slate-200">👥 Average Pax per Flight</td>
@@ -609,7 +651,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                     <tr className="bg-slate-50 dark:bg-white/5">
                       <td className="p-3 font-sans font-semibold text-slate-700 dark:text-slate-300">🛄 Baggage / Pax Ratio</td>
                       <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-200">
-                        {stats.totalPax > 0 ? (stats.totalBags / stats.totalPax).toFixed(2) : '0.00'} bags/pax
+                        {stats.totalPaxOut > 0 ? (stats.totalBagsOut / stats.totalPaxOut).toFixed(2) : '0.00'} bags/pax
                       </td>
                     </tr>
                     <tr className="bg-slate-50 dark:bg-white/5">

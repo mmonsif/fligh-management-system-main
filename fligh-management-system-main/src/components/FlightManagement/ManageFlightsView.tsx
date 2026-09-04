@@ -3,6 +3,7 @@ import { Flight, Airline, Agency, FlightStatus } from '../../types';
 import {
   formatUtcDateTime,
   toUtcInputString,
+  parseDateTimeLocalAsUtc,
   formatMinutesToHHMM,
   parseHHMMToMinutes,
   getStatusBadgeStyle,
@@ -11,6 +12,7 @@ import {
   formatFlightRoute,
   isTriangleFlight,
   parseRouteString,
+  getPassengerTotal,
 } from '../../utils/flightUtils';
 import { CancelFlightModal } from './CancelFlightModal';
 import { TripFileModal } from './TripFileModal';
@@ -100,9 +102,13 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
   const [ataUtc, setAtaUtc] = useState(new Date().toISOString().slice(0, 16));
   const [atdUtc, setAtdUtc] = useState(new Date(Date.now() + 3600000).toISOString().slice(0, 16));
   const [txtBags, setTxtBags] = useState('');
+  const [txtIncomingBags, setTxtIncomingBags] = useState('');
   const [txtAdultPax, setTxtAdultPax] = useState('');
   const [txtChildPax, setTxtChildPax] = useState('');
   const [txtInfantPax, setTxtInfantPax] = useState('');
+  const [txtIncomingAdultPax, setTxtIncomingAdultPax] = useState('');
+  const [txtIncomingChildPax, setTxtIncomingChildPax] = useState('');
+  const [txtIncomingInfantPax, setTxtIncomingInfantPax] = useState('');
   const [txtRegistration, setTxtRegistration] = useState('');
   const [txtRemarks, setTxtRemarks] = useState('');
 
@@ -116,6 +122,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
 
   // Notification / Message box toast
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'warning' | 'info' | 'error' } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; confirmText?: string; onConfirm: () => void } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'warning' | 'info' | 'error' = 'info') => {
     setNotification({ message, type });
@@ -144,9 +151,13 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       setChkATA(false);
       setChkATD(false);
       setTxtBags('');
+      setTxtIncomingBags('');
       setTxtAdultPax('');
       setTxtChildPax('');
       setTxtInfantPax('');
+      setTxtIncomingAdultPax('');
+      setTxtIncomingChildPax('');
+      setTxtIncomingInfantPax('');
       setTxtRegistration('');
       setTxtRemarks('');
       setDelayCode1('');
@@ -158,21 +169,16 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       return;
     }
 
-    // Schedule
-    setTxtInbound(flight.inboundFlightNumber);
-    setTxtOutbound(flight.outboundFlightNumber);
-    setStaUtc(toUtcInputString(flight.staUtc));
-    setStdUtc(toUtcInputString(flight.stdUtc));
-    setTxtOrigin(flight.origin);
-    setTxtDestination(flight.destination);
+    setTxtInbound(flight.inboundFlightNumber || '');
+    setTxtOutbound(flight.outboundFlightNumber || '');
+    setTxtOrigin(flight.origin || '');
+    setTxtDestination(flight.destination || '');
     setTxtVia(flight.via || '');
-    setTxtFinalDestination(flight.finalDestination);
-    setRouteQuickInput(formatFlightRoute(flight));
-    setSelectedAirlineId(flight.airlineId);
-    setSelectedAgencyId(flight.agencyId);
-    setTxtAircraftType(flight.aircraftType);
+    setTxtFinalDestination(flight.finalDestination || '');
+    setTxtAircraftType(flight.aircraftType || '');
+    setSelectedAirlineId(flight.airlineId || airlines[0]?.airlineId || 1);
+    setSelectedAgencyId(flight.agencyId || agencies[0]?.agencyId || 1);
 
-    // Actuals
     if (flight.ataUtc) {
       setChkATA(true);
       setAtaUtc(toUtcInputString(flight.ataUtc));
@@ -188,9 +194,13 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
     }
 
     setTxtBags(flight.numberOfBags !== null ? String(flight.numberOfBags) : '');
+    setTxtIncomingBags(flight.incomingNumberOfBags !== null && flight.incomingNumberOfBags !== undefined ? String(flight.incomingNumberOfBags) : '');
     setTxtAdultPax(flight.adultPax !== null ? String(flight.adultPax) : '');
     setTxtChildPax(flight.childPax !== null ? String(flight.childPax) : '');
     setTxtInfantPax(flight.infantPax !== null ? String(flight.infantPax) : '');
+    setTxtIncomingAdultPax(flight.incomingAdultPax !== null && flight.incomingAdultPax !== undefined ? String(flight.incomingAdultPax) : '');
+    setTxtIncomingChildPax(flight.incomingChildPax !== null && flight.incomingChildPax !== undefined ? String(flight.incomingChildPax) : '');
+    setTxtIncomingInfantPax(flight.incomingInfantPax !== null && flight.incomingInfantPax !== undefined ? String(flight.incomingInfantPax) : '');
     setTxtRegistration(flight.registration || '');
     setTxtRemarks(flight.remarks || '');
 
@@ -254,6 +264,13 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
     const i = parseInt(txtInfantPax, 10) || 0;
     return a + c + i;
   }, [txtAdultPax, txtChildPax, txtInfantPax]);
+
+  const computedIncomingTotalPax = useMemo(() => {
+    const a = parseInt(txtIncomingAdultPax, 10) || 0;
+    const c = parseInt(txtIncomingChildPax, 10) || 0;
+    const i = parseInt(txtIncomingInfantPax, 10) || 0;
+    return a + c + i;
+  }, [txtIncomingAdultPax, txtIncomingChildPax, txtIncomingInfantPax]);
 
   // Filtered flights list
   const filteredFlights = useMemo(() => {
@@ -327,10 +344,10 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
     onAddFlight({
       inboundFlightNumber: txtInbound.trim().toUpperCase(),
       outboundFlightNumber: txtOutbound.trim().toUpperCase(),
-      staUtc: new Date(staUtc).toISOString(),
-      stdUtc: new Date(stdUtc).toISOString(),
-      ataUtc: chkATA ? new Date(ataUtc).toISOString() : null,
-      atdUtc: chkATD ? new Date(atdUtc).toISOString() : null,
+      staUtc: parseDateTimeLocalAsUtc(staUtc) || new Date().toISOString(),
+      stdUtc: parseDateTimeLocalAsUtc(stdUtc) || new Date().toISOString(),
+      ataUtc: chkATA ? parseDateTimeLocalAsUtc(ataUtc) : null,
+      atdUtc: chkATD ? parseDateTimeLocalAsUtc(atdUtc) : null,
       origin: orig,
       destination: dest,
       via: viaVal,
@@ -343,10 +360,15 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       registration: txtRegistration.trim().toUpperCase(),
       remarks: txtRemarks.trim(),
       numberOfBags: txtBags ? parseInt(txtBags, 10) : null,
+      incomingNumberOfBags: txtIncomingBags ? parseInt(txtIncomingBags, 10) : null,
       adultPax: txtAdultPax ? parseInt(txtAdultPax, 10) : null,
       childPax: txtChildPax ? parseInt(txtChildPax, 10) : null,
       infantPax: txtInfantPax ? parseInt(txtInfantPax, 10) : null,
       totalPax: computedTotalPax > 0 ? computedTotalPax : null,
+      incomingAdultPax: txtIncomingAdultPax ? parseInt(txtIncomingAdultPax, 10) : null,
+      incomingChildPax: txtIncomingChildPax ? parseInt(txtIncomingChildPax, 10) : null,
+      incomingInfantPax: txtIncomingInfantPax ? parseInt(txtIncomingInfantPax, 10) : null,
+      incomingTotalPax: computedIncomingTotalPax > 0 ? computedIncomingTotalPax : null,
       delays: [],
     });
 
@@ -370,8 +392,8 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
     onUpdateSchedule(selectedFlightId, {
       inboundFlightNumber: txtInbound.trim().toUpperCase(),
       outboundFlightNumber: txtOutbound.trim().toUpperCase(),
-      staUtc: new Date(staUtc).toISOString(),
-      stdUtc: new Date(stdUtc).toISOString(),
+      staUtc: parseDateTimeLocalAsUtc(staUtc) || new Date().toISOString(),
+      stdUtc: parseDateTimeLocalAsUtc(stdUtc) || new Date().toISOString(),
       origin: txtOrigin.trim().toUpperCase(),
       destination: txtDestination.trim().toUpperCase(),
       via: txtVia.trim().toUpperCase() || undefined,
@@ -398,13 +420,18 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
     }
 
     onUpdateActuals(selectedFlightId, {
-      ataUtc: chkATA ? new Date(ataUtc).toISOString() : null,
-      atdUtc: chkATD ? new Date(atdUtc).toISOString() : null,
+      ataUtc: chkATA ? parseDateTimeLocalAsUtc(ataUtc) : null,
+      atdUtc: chkATD ? parseDateTimeLocalAsUtc(atdUtc) : null,
       numberOfBags: txtBags.trim() ? parseInt(txtBags, 10) : null,
+      incomingNumberOfBags: txtIncomingBags.trim() ? parseInt(txtIncomingBags, 10) : null,
       adultPax: txtAdultPax.trim() ? parseInt(txtAdultPax, 10) : null,
       childPax: txtChildPax.trim() ? parseInt(txtChildPax, 10) : null,
       infantPax: txtInfantPax.trim() ? parseInt(txtInfantPax, 10) : null,
       totalPax: computedTotalPax > 0 ? computedTotalPax : null,
+      incomingAdultPax: txtIncomingAdultPax.trim() ? parseInt(txtIncomingAdultPax, 10) : null,
+      incomingChildPax: txtIncomingChildPax.trim() ? parseInt(txtIncomingChildPax, 10) : null,
+      incomingInfantPax: txtIncomingInfantPax.trim() ? parseInt(txtIncomingInfantPax, 10) : null,
+      incomingTotalPax: computedIncomingTotalPax > 0 ? computedIncomingTotalPax : null,
       registration: txtRegistration.trim().toUpperCase(),
       remarks: txtRemarks.trim(),
     });
@@ -470,11 +497,18 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       showToast('Please select a flight to delete.', 'info');
       return;
     }
-    if (window.confirm(`Are you sure you want to permanently delete flight ${selectedFlight.inboundFlightNumber}/${selectedFlight.outboundFlightNumber}?`)) {
-      onDeleteFlight(selectedFlight.flightId);
-      setSelectedFlightId(null);
-      showToast('Flight deleted successfully.', 'info');
-    }
+
+    setConfirmDialog({
+      title: 'Delete flight',
+      message: `Are you sure you want to permanently delete flight ${selectedFlight.inboundFlightNumber}/${selectedFlight.outboundFlightNumber}?`,
+      confirmText: 'Delete',
+      onConfirm: () => {
+        onDeleteFlight(selectedFlight.flightId);
+        setSelectedFlightId(null);
+        showToast('Flight deleted successfully.', 'info');
+        setConfirmDialog(null);
+      },
+    });
   };
 
   // Open IATA Delay Picker
@@ -494,18 +528,48 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       {/* Toast Notification with Frosted Glass */}
       {notification && (
         <div
-          className={`fixed bottom-5 right-5 z-50 px-4 py-3 rounded-2xl shadow-2xl text-xs font-semibold flex items-center gap-2 border backdrop-blur-xl transition-all ${
+          className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-xl shadow-[0_10px_30px_rgba(15,23,42,0.35)] text-xs font-semibold flex items-center gap-2 border backdrop-blur-xl transition-all ${
             notification.type === 'success'
-              ? 'bg-emerald-950/80 text-emerald-200 border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.3)]'
+              ? 'bg-emerald-950/90 text-emerald-100 border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.3)]'
               : notification.type === 'warning'
-              ? 'bg-amber-950/80 text-amber-200 border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.3)]'
+              ? 'bg-amber-950/90 text-amber-100 border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.3)]'
               : notification.type === 'error'
-              ? 'bg-rose-950/80 text-rose-200 border-rose-500/40 shadow-[0_0_20px_rgba(244,63,94,0.3)]'
-              : 'bg-slate-900/90 text-slate-100 border-white/20 shadow-[0_0_20px_rgba(14,165,233,0.3)]'
+              ? 'bg-rose-950/90 text-rose-100 border-rose-500/40 shadow-[0_0_20px_rgba(244,63,94,0.3)]'
+              : 'bg-slate-900/90 text-slate-100 border-sky-500/30 shadow-[0_0_20px_rgba(14,165,233,0.3)]'
           }`}
         >
-          <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
+          <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse"></span>
           <span>{notification.message}</span>
+        </div>
+      )}
+
+      {confirmDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-[0_18px_52px_rgba(15,23,42,0.35)] overflow-hidden">
+            <div className="flex items-center justify-between bg-gradient-to-r from-slate-800 to-slate-700 px-4 py-3 text-white">
+              <span className="text-sm font-bold tracking-wide">{confirmDialog.title}</span>
+              <span className="text-xs font-semibold uppercase text-slate-300">System</span>
+            </div>
+            <div className="px-4 py-4 text-sm text-slate-700">
+              <p>{confirmDialog.message}</p>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDialog(null)}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDialog.onConfirm}
+                className="rounded-md border border-rose-200 bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700"
+              >
+                {confirmDialog.confirmText || 'Confirm'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -836,7 +900,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                       <td className="px-3.5 py-2.5 text-right font-mono font-bold text-sky-700 dark:text-sky-300">
                         {flight.totalPax ?? '-'}
                       </td>
-                      <td className="px-3.5 py-2.5 text-right font-mono text-slate-700 dark:text-slate-300">{flight.numberOfBags ?? '-'}</td>
+                      <td className="px-3.5 py-2.5 text-right font-mono text-slate-700 dark:text-slate-300">{flight.numberOfBags ?? '-'} / {flight.incomingNumberOfBags ?? '-'}</td>
                       <td className="px-3.5 py-2.5 text-slate-500 dark:text-slate-400 max-w-[240px] truncate text-[11px]">
                         {flight.remarks || '-'}
                       </td>
@@ -1223,15 +1287,26 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                 />
               </div>
 
-              {/* Bags */}
               <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Number of Bags</label>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Outgoing Bags</label>
                 <input
                   type="number"
                   value={txtBags}
                   disabled={isSelectedFlightCanceled}
                   onChange={(e) => setTxtBags(e.target.value)}
                   placeholder="e.g. 284"
+                  className="glass-input w-full px-2.5 py-1.5 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Incoming Bags</label>
+                <input
+                  type="number"
+                  value={txtIncomingBags}
+                  disabled={isSelectedFlightCanceled}
+                  onChange={(e) => setTxtIncomingBags(e.target.value)}
+                  placeholder="e.g. 245"
                   className="glass-input w-full px-2.5 py-1.5 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40"
                 />
               </div>
@@ -1257,42 +1332,44 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                   Passenger Breakdown
                 </span>
                 <span className="text-xs font-black text-sky-700 dark:text-sky-400 font-mono">
-                  Total Pax: {computedTotalPax}
+                  Outgoing Total: {computedTotalPax} | Incoming Total: {computedIncomingTotalPax}
                 </span>
               </div>
-              <div className="grid grid-cols-3 gap-3 text-xs">
-                <div>
-                  <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">Adult Pax</label>
-                  <input
-                    type="number"
-                    value={txtAdultPax}
-                    disabled={isSelectedFlightCanceled}
-                    onChange={(e) => setTxtAdultPax(e.target.value)}
-                    placeholder="0"
-                    className="glass-input w-full px-2.5 py-1 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40"
-                  />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 text-xs">
+                <div className="rounded-xl border border-slate-200 bg-white/70 p-2.5 dark:border-slate-700 dark:bg-slate-900/30">
+                  <div className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Outgoing</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">Adult</label>
+                      <input type="number" value={txtAdultPax} disabled={isSelectedFlightCanceled} onChange={(e) => setTxtAdultPax(e.target.value)} placeholder="0" className="glass-input w-full px-2.5 py-1 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40" />
+                    </div>
+                    <div>
+                      <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">Child</label>
+                      <input type="number" value={txtChildPax} disabled={isSelectedFlightCanceled} onChange={(e) => setTxtChildPax(e.target.value)} placeholder="0" className="glass-input w-full px-2.5 py-1 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40" />
+                    </div>
+                    <div>
+                      <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">Infant</label>
+                      <input type="number" value={txtInfantPax} disabled={isSelectedFlightCanceled} onChange={(e) => setTxtInfantPax(e.target.value)} placeholder="0" className="glass-input w-full px-2.5 py-1 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40" />
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">Child Pax</label>
-                  <input
-                    type="number"
-                    value={txtChildPax}
-                    disabled={isSelectedFlightCanceled}
-                    onChange={(e) => setTxtChildPax(e.target.value)}
-                    placeholder="0"
-                    className="glass-input w-full px-2.5 py-1 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">Infant Pax</label>
-                  <input
-                    type="number"
-                    value={txtInfantPax}
-                    disabled={isSelectedFlightCanceled}
-                    onChange={(e) => setTxtInfantPax(e.target.value)}
-                    placeholder="0"
-                    className="glass-input w-full px-2.5 py-1 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40"
-                  />
+
+                <div className="rounded-xl border border-slate-200 bg-white/70 p-2.5 dark:border-slate-700 dark:bg-slate-900/30">
+                  <div className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Incoming</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">Adult</label>
+                      <input type="number" value={txtIncomingAdultPax} disabled={isSelectedFlightCanceled} onChange={(e) => setTxtIncomingAdultPax(e.target.value)} placeholder="0" className="glass-input w-full px-2.5 py-1 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40" />
+                    </div>
+                    <div>
+                      <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">Child</label>
+                      <input type="number" value={txtIncomingChildPax} disabled={isSelectedFlightCanceled} onChange={(e) => setTxtIncomingChildPax(e.target.value)} placeholder="0" className="glass-input w-full px-2.5 py-1 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40" />
+                    </div>
+                    <div>
+                      <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">Infant</label>
+                      <input type="number" value={txtIncomingInfantPax} disabled={isSelectedFlightCanceled} onChange={(e) => setTxtIncomingInfantPax(e.target.value)} placeholder="0" className="glass-input w-full px-2.5 py-1 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40" />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
