@@ -41,6 +41,7 @@ interface ManageFlightsViewProps {
   flights: Flight[];
   airlines: Airline[];
   agencies: Agency[];
+  canAddFlight: boolean;
   onAddFlight: (flightData: Omit<Flight, 'flightId' | 'flightStatus' | 'delayMinutesTotal'>) => void;
   onUpdateSchedule: (flightId: number, scheduleData: Partial<Flight>) => void;
   onUpdateActuals: (flightId: number, actualsData: Partial<Flight>) => void;
@@ -54,6 +55,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
   flights,
   airlines,
   agencies,
+  canAddFlight,
   onAddFlight,
   onUpdateSchedule,
   onUpdateActuals,
@@ -78,6 +80,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
   // Modals
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [isTripFileModalOpen, setIsTripFileModalOpen] = useState(false);
+  const [isAddFlightModalOpen, setIsAddFlightModalOpen] = useState(false);
   const [isDelayPickerOpen, setIsDelayPickerOpen] = useState(false);
   const [activeDelayTarget, setActiveDelayTarget] = useState<1 | 2 | 3>(1);
 
@@ -373,6 +376,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
     });
 
     showToast(`Flight ${txtInbound.toUpperCase()}/${txtOutbound.toUpperCase()} added successfully!`, 'success');
+    setIsAddFlightModalOpen(false);
   };
 
   // Handle Update Schedule
@@ -573,16 +577,98 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
         </div>
       )}
 
+      {isAddFlightModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 backdrop-blur-sm p-4">
+          <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-[0_18px_52px_rgba(15,23,42,0.35)]">
+            <div className="flex items-center justify-between bg-gradient-to-r from-sky-800 to-sky-700 px-5 py-4 text-white">
+              <div>
+                <h2 className="text-base font-bold">Add Flight</h2>
+                <p className="text-xs text-sky-100">Enter the essential schedule and handling information.</p>
+              </div>
+              <button type="button" onClick={() => setIsAddFlightModalOpen(false)} className="rounded-md p-1.5 text-sky-100 hover:bg-white/10 hover:text-white" title="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 p-5 text-xs md:grid-cols-2">
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">Inbound Flight #</label>
+                <input value={txtInbound} onChange={(e) => setTxtInbound(e.target.value.toUpperCase())} placeholder="e.g. MS777" className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">Outbound Flight #</label>
+                <input value={txtOutbound} onChange={(e) => setTxtOutbound(e.target.value.toUpperCase())} placeholder="e.g. MS778" className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">STA (UTC)</label>
+                <input type="datetime-local" value={staUtc} onChange={(e) => setStaUtc(e.target.value)} className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">STD (UTC)</label>
+                <input type="datetime-local" value={stdUtc} onChange={(e) => setStdUtc(e.target.value)} className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">Airline</label>
+                <select value={selectedAirlineId} onChange={(e) => setSelectedAirlineId(Number(e.target.value))} className="glass-input w-full rounded-xl px-2 py-2 text-slate-900">
+                  {airlines.map((airline) => <option key={airline.airlineId} value={airline.airlineId}>{airline.airlineName}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">Agency</label>
+                <select value={selectedAgencyId} onChange={(e) => setSelectedAgencyId(Number(e.target.value))} className="glass-input w-full rounded-xl px-2 py-2 text-slate-900">
+                  {agencies.map((agency) => <option key={agency.agencyId} value={agency.agencyId}>{agency.agencyName}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">Origin</label>
+                <input maxLength={3} value={txtOrigin} onChange={(e) => setTxtOrigin(e.target.value.toUpperCase())} placeholder="LHR" className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">Destination</label>
+                <input maxLength={3} value={txtDestination} onChange={(e) => setTxtDestination(e.target.value.toUpperCase())} placeholder="CAI" className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">Via (optional)</label>
+                <input maxLength={3} value={txtVia} onChange={(e) => setTxtVia(e.target.value.toUpperCase())} placeholder="HRG" className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">Final Destination</label>
+                <input maxLength={3} value={txtFinalDestination} onChange={(e) => setTxtFinalDestination(e.target.value.toUpperCase())} placeholder="LHR" className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">Aircraft Type</label>
+                <input value={txtAircraftType} onChange={(e) => setTxtAircraftType(e.target.value.toUpperCase())} placeholder="A320" className="glass-input w-full rounded-xl px-2.5 py-2 text-slate-900" />
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">Registration / Tail</label>
+                <input value={txtRegistration} onChange={(e) => setTxtRegistration(e.target.value.toUpperCase())} placeholder="SU-GDU" className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block font-semibold text-slate-700">Remarks</label>
+                <textarea value={txtRemarks} onChange={(e) => setTxtRemarks(e.target.value)} rows={2} placeholder="Handling notes" className="glass-input w-full rounded-xl px-2.5 py-2 text-slate-900" />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
+              <button type="button" onClick={() => setIsAddFlightModalOpen(false)} className="rounded-md border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">Cancel</button>
+              <button type="button" onClick={handleAddFlightClick} className="glass-btn-primary rounded-md px-4 py-2 text-xs font-semibold">Submit Flight</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Action Command Bar */}
       <div className="glass-card p-3 rounded-2xl shadow-xl dark:shadow-2xl flex flex-wrap items-center justify-between gap-2.5">
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleAddFlightClick}
-            className="glass-btn-primary inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add Flight
-          </button>
+          {canAddFlight && (
+            <button
+              onClick={() => setIsAddFlightModalOpen(true)}
+              className="glass-btn-primary inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Flight
+            </button>
+          )}
 
           <button
             onClick={handleCancelClick}

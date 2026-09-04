@@ -144,7 +144,6 @@ ${flight.cancellationReason ? `\nCANCELLATION REASON:\n  ${flight.cancellationRe
               </div>
 
               <div className="text-right">
-                <div className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400">DOSSIER #{flight.flightId}</div>
                 <div className="mt-1">
                   <span className={`px-2.5 py-1 text-xs rounded-xl border ${statusStyle.bgClass} ${statusStyle.textClass} ${statusStyle.borderClass}`}>
                     {statusStyle.label}

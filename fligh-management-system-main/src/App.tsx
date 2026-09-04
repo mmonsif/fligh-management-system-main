@@ -20,7 +20,7 @@ import { loadDatabaseSnapshot, saveDatabaseSnapshot, subscribeToDatabaseChanges 
 const roleTabs: Record<UserRole, ActiveTab[]> = {
   staff: ['manage-flights'],
   manager: ['manage-flights', 'statistics'],
-  'data-insert': ['bulk-flights', 'airlines', 'agencies'],
+  'data-insert': ['manage-flights', 'bulk-flights', 'airlines', 'agencies'],
   admin: ['manage-flights', 'bulk-flights', 'statistics', 'airlines', 'agencies'],
 };
 
@@ -516,6 +516,7 @@ export default function App() {
             flights={flights}
             airlines={airlines}
             agencies={agencies}
+            canAddFlight={user.role === 'data-insert' || user.role === 'admin'}
             onAddFlight={handleAddFlight}
             onUpdateSchedule={handleUpdateSchedule}
             onUpdateActuals={handleUpdateActuals}
