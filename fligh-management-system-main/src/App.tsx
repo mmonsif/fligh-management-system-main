@@ -52,16 +52,14 @@ export default function App() {
     loadDatabaseSnapshot()
       .then((snapshot) => {
         if (!isMounted || !snapshot) return;
-        if (snapshot.flights.length > 0) setFlights(snapshot.flights);
-        if (snapshot.airlines.length > 0) setAirlines(snapshot.airlines);
-        if (snapshot.agencies.length > 0) setAgencies(snapshot.agencies);
-        if (snapshot.templates.length > 0) setTemplates(snapshot.templates);
+        setFlights(snapshot.flights);
+        setAirlines(snapshot.airlines);
+        setAgencies(snapshot.agencies);
+        setTemplates(snapshot.templates);
+        setDatabaseLoaded(true);
       })
       .catch((error) => {
         console.error('Supabase load failed; using local data:', error);
-      })
-      .finally(() => {
-        if (isMounted) setDatabaseLoaded(true);
       });
 
     return () => {
@@ -97,6 +95,8 @@ export default function App() {
 
   // Load persisted states or fall back to defaults
   const [flights, setFlights] = useState<Flight[]>(() => {
+    if (isSupabaseConfigured) return [];
+
     try {
       const saved = localStorage.getItem('fms_flights');
       if (saved) {
@@ -112,6 +112,8 @@ export default function App() {
   });
 
   const [airlines, setAirlines] = useState<Airline[]>(() => {
+    if (isSupabaseConfigured) return [];
+
     try {
       const saved = localStorage.getItem('fms_airlines');
       return saved ? JSON.parse(saved) : INITIAL_AIRLINES;
@@ -121,6 +123,8 @@ export default function App() {
   });
 
   const [agencies, setAgencies] = useState<Agency[]>(() => {
+    if (isSupabaseConfigured) return [];
+
     try {
       const saved = localStorage.getItem('fms_agencies');
       return saved ? JSON.parse(saved) : INITIAL_AGENCIES;
@@ -130,6 +134,8 @@ export default function App() {
   });
 
   const [templates, setTemplates] = useState<FlightTemplate[]>(() => {
+    if (isSupabaseConfigured) return [];
+
     try {
       const saved = localStorage.getItem('fms_templates');
       return saved ? JSON.parse(saved) : INITIAL_TEMPLATES;
