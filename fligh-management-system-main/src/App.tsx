@@ -14,7 +14,7 @@ import { FlightStatisticsView } from './components/Statistics/FlightStatisticsVi
 import { ManageAirlinesView } from './components/Airlines/ManageAirlinesView';
 import { ManageAgenciesView } from './components/Agencies/ManageAgenciesView';
 import { LoginPage } from './components/LoginPage';
-import { isSupabaseConfigured } from './lib/supabase';
+import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { loadDatabaseSnapshot, saveDatabaseSnapshot, subscribeToDatabaseChanges } from './lib/database';
 
 const roleTabs: Record<UserRole, ActiveTab[]> = {
@@ -314,8 +314,17 @@ export default function App() {
   };
 
   // Delete flight
-  const handleDeleteFlight = (flightId: number) => {
+  const handleDeleteFlight = async (flightId: number) => {
     setFlights((prev) => prev.filter((f) => f.flightId !== flightId));
+
+    if (!isSupabaseConfigured || !supabase) return;
+
+    try {
+      const { error } = await supabase.from('flights').delete().eq('flight_id', flightId);
+      if (error) throw new Error(error.message);
+    } catch (error) {
+      console.error('Supabase flight delete failed:', error);
+    }
   };
 
   // Refresh operational status

@@ -38,6 +38,20 @@ interface FlightTrendsDashboardProps {
   onSelectDateFilter?: (date: string) => void;
 }
 
+interface WindowSummary {
+  totalFlights: number;
+  totalCompleted: number;
+  totalOnTime: number;
+  totalDelayed: number;
+  totalCanceled: number;
+  avgOnTimeRate: number;
+  avgDailyFlights: number;
+  avgDelayPerDelayedFlight: number;
+  peakDay: DailyTrendPoint | null;
+  bestOtpDay: DailyTrendPoint | null;
+  totalPax: number;
+}
+
 export interface DailyTrendPoint {
   dateKey: string;        // "2026-08-15"
   displayDate: string;    // "Aug 15"
@@ -127,7 +141,7 @@ export const FlightTrendsDashboard: React.FC<FlightTrendsDashboardProps> = ({
   }, [flights, dateTo, windowDays]);
 
   // Aggregate metrics for this 30-day window
-  const windowSummary = useMemo(() => {
+  const windowSummary = useMemo<WindowSummary>(() => {
     const totalFlights = dailyData.reduce((acc, d) => acc + d.totalFlights, 0);
     const totalCompleted = dailyData.reduce((acc, d) => acc + d.completedFlights, 0);
     const totalOnTime = dailyData.reduce((acc, d) => acc + d.onTimeFlights, 0);
@@ -179,7 +193,7 @@ export const FlightTrendsDashboard: React.FC<FlightTrendsDashboardProps> = ({
     if (active && payload && payload.length) {
       const data: DailyTrendPoint = payload[0].payload;
       return (
-        <div className="glass-card p-3 rounded-xl border border-slate-200 shadow-xl text-xs space-y-1.5 min-w-[200px]">
+        <div className="glass-card p-3 rounded-xl border border-slate-200 shadow-xl text-xs space-y-1.5 min-w-50">
           <div className="flex items-center justify-between border-b border-slate-100 pb-1.5 font-bold text-slate-800">
             <span>
               {data.displayDate} ({data.dayOfWeek})
@@ -392,7 +406,7 @@ export const FlightTrendsDashboard: React.FC<FlightTrendsDashboardProps> = ({
       {/* Main Interactive Recharts Area */}
       <div className="w-full bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
         {/* Dynamic Recharts Chart */}
-        <div className="h-[340px] w-full">
+        <div className="h-85 w-full">
           <ResponsiveContainer width="100%" height={340}>
             {chartViewMode === 'dual' ? (
               <ComposedChart

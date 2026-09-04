@@ -53,6 +53,9 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
     const delayedFlights = periodFlights.filter((f) => f.delayMinutesTotal > 0 && f.flightStatus !== 'Canceled').length;
     const onTimeFlights = periodFlights.filter((f) => f.delayMinutesTotal === 0 && f.flightStatus === 'Completed').length;
 
+    const totalAdultPax = periodFlights.reduce((acc, f) => acc + (f.adultPax || 0), 0);
+    const totalChildPax = periodFlights.reduce((acc, f) => acc + (f.childPax || 0), 0);
+    const totalInfantPax = periodFlights.reduce((acc, f) => acc + (f.infantPax || 0), 0);
     const totalPax = periodFlights.reduce((acc, f) => acc + (f.totalPax || 0), 0);
     const totalBags = periodFlights.reduce((acc, f) => acc + (f.numberOfBags || 0), 0);
 
@@ -81,6 +84,9 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
       canceledFlights,
       delayedFlights,
       onTimeFlights,
+      totalAdultPax,
+      totalChildPax,
+      totalInfantPax,
       totalPax,
       totalBags,
       completionRate,
@@ -236,6 +242,9 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
     csvContent += `Delayed Flights,${stats.delayedFlights}\r\n`;
     csvContent += `On-Time Flights,${stats.onTimeFlights}\r\n`;
     csvContent += `Average Delay (min),${stats.avgDelayMinutes.toFixed(1)}\r\n`;
+    csvContent += `Total Adult Pax,${stats.totalAdultPax}\r\n`;
+    csvContent += `Total Child Pax,${stats.totalChildPax}\r\n`;
+    csvContent += `Total Infant Pax,${stats.totalInfantPax}\r\n`;
     csvContent += `Total Passengers,${stats.totalPax}\r\n`;
     csvContent += `Total Bags,${stats.totalBags}\r\n`;
     csvContent += `Completion Rate,${stats.completionRate.toFixed(1)}%\r\n`;
@@ -376,18 +385,42 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
         <div className="p-3.5 glass-card-sub rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
           <div>
-            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Total Passengers</span>
-            <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.totalPax.toLocaleString()}</span>
+            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Adult Pax</span>
+            <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.totalAdultPax.toLocaleString()}</span>
           </div>
           <Users className="w-5 h-5 text-sky-600 dark:text-sky-400" />
         </div>
 
         <div className="p-3.5 glass-card-sub rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
           <div>
-            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Total Baggage Checked</span>
+            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Child Pax</span>
+            <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.totalChildPax.toLocaleString()}</span>
+          </div>
+          <Users className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+        </div>
+
+        <div className="p-3.5 glass-card-sub rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
+          <div>
+            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Infant Pax</span>
+            <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.totalInfantPax.toLocaleString()}</span>
+          </div>
+          <Users className="w-5 h-5 text-violet-600 dark:text-violet-400" />
+        </div>
+
+        <div className="p-3.5 glass-card-sub rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
+          <div>
+            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Total Bags Checked</span>
             <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.totalBags.toLocaleString()} pcs</span>
           </div>
           <Luggage className="w-5 h-5 text-sky-600 dark:text-sky-400" />
+        </div>
+
+        <div className="p-3.5 glass-card-sub rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
+          <div>
+            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Total Passengers</span>
+            <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.totalPax.toLocaleString()}</span>
+          </div>
+          <Users className="w-5 h-5 text-sky-600 dark:text-sky-400" />
         </div>
 
         <div className="p-3.5 glass-card-sub rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
@@ -533,6 +566,18 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                 </div>
                 <table className="w-full text-xs text-left">
                   <tbody className="divide-y divide-slate-100 dark:divide-white/5 font-mono">
+                    <tr>
+                      <td className="p-3 font-sans font-medium text-slate-700 dark:text-slate-200">👥 Total Adult Pax</td>
+                      <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-200">{stats.totalAdultPax.toLocaleString()}</td>
+                    </tr>
+                    <tr>
+                      <td className="p-3 font-sans font-medium text-slate-700 dark:text-slate-200">🧒 Total Child Pax</td>
+                      <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-200">{stats.totalChildPax.toLocaleString()}</td>
+                    </tr>
+                    <tr>
+                      <td className="p-3 font-sans font-medium text-slate-700 dark:text-slate-200">👶 Total Infant Pax</td>
+                      <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-200">{stats.totalInfantPax.toLocaleString()}</td>
+                    </tr>
                     <tr>
                       <td className="p-3 font-sans font-medium text-slate-700 dark:text-slate-200">👥 Total Passengers Carried</td>
                       <td className="p-3 text-right font-bold text-slate-800 dark:text-slate-200">{stats.totalPax.toLocaleString()}</td>

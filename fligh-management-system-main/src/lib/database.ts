@@ -182,6 +182,16 @@ export const authenticateUser = async (username: string, password: string): Prom
 export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot) => {
   if (!isSupabaseConfigured || !supabase) return;
 
+  const existingFlightsResult = await supabase.from('flights').select('flight_id');
+  const existingFlightIds = new Set((existingFlightsResult.data ?? []).map((row) => row.flight_id));
+  const snapshotFlightIds = new Set(snapshot.flights.map((flight) => flight.flightId));
+  const deletedFlightIds = [...existingFlightIds].filter((flightId) => !snapshotFlightIds.has(flightId));
+
+  if (deletedFlightIds.length > 0) {
+    const { error: deleteError } = await supabase.from('flights').delete().in('flight_id', deletedFlightIds);
+    if (deleteError) throw new Error(`Supabase flight delete sync failed: ${deleteError.message}`);
+  }
+
   const results = await Promise.all([
     supabase.from('airlines').upsert(snapshot.airlines.map((airline) => ({
       airline_id: airline.airlineId,
