@@ -1,0 +1,6 @@
+{
+  "name": "Flight Management System",
+  "description": "Comprehensive flight management system for managing flight schedules, operational actuals, delays, bulk schedule generation, airline & agency directories, and analytical reporting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
