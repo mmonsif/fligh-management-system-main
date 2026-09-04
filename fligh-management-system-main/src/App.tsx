@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ActiveTab, AuthUser, Flight, Airline, Agency, FlightTemplate, UserRole } from './types';
 import {
   INITIAL_FLIGHTS,
@@ -15,7 +15,7 @@ import { ManageAirlinesView } from './components/Airlines/ManageAirlinesView';
 import { ManageAgenciesView } from './components/Agencies/ManageAgenciesView';
 import { LoginPage } from './components/LoginPage';
 import { isSupabaseConfigured } from './lib/supabase';
-import { loadDatabaseSnapshot, saveDatabaseSnapshot } from './lib/database';
+import { loadDatabaseSnapshot, saveDatabaseSnapshot, subscribeToDatabaseChanges } from './lib/database';
 
 const roleTabs: Record<UserRole, ActiveTab[]> = {
   staff: ['manage-flights'],
@@ -35,6 +35,7 @@ export default function App() {
     }
   });
   const [databaseLoaded, setDatabaseLoaded] = useState(!isSupabaseConfigured);
+  const skipNextDatabaseSave = useRef(false);
 
   const allowedTabs = user ? roleTabs[user.role] : [];
 
@@ -65,6 +66,18 @@ export default function App() {
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return undefined;
+
+    return subscribeToDatabaseChanges((snapshot) => {
+      skipNextDatabaseSave.current = true;
+      setFlights(snapshot.flights);
+      setAirlines(snapshot.airlines);
+      setAgencies(snapshot.agencies);
+      setTemplates(snapshot.templates);
+    });
   }, []);
 
   useEffect(() => {
@@ -179,7 +192,14 @@ export default function App() {
 
   useEffect(() => {
     if (!databaseLoaded) return;
-    void saveDatabaseSnapshot({ flights, airlines, agencies, templates });
+    if (skipNextDatabaseSave.current) {
+      skipNextDatabaseSave.current = false;
+      return;
+    }
+
+    void saveDatabaseSnapshot({ flights, airlines, agencies, templates }).catch((error) => {
+      console.error('Supabase sync failed:', error);
+    });
   }, [databaseLoaded, flights, airlines, agencies, templates]);
 
   if (!user) {

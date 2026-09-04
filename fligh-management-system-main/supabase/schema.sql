@@ -168,3 +168,10 @@ create policy "public app access" on public.flight_templates for all to anon, au
 create policy "public app access" on public.template_schedules for all to anon, authenticated using (true) with check (true);
 create policy "public app access" on public.flights for all to anon, authenticated using (true) with check (true);
 create policy "public app access" on public.delay_codes for all to anon, authenticated using (true) with check (true);
+
+-- Publish data changes so every open client receives inserts, updates, and deletes immediately.
+alter publication supabase_realtime add table public.airlines;
+alter publication supabase_realtime add table public.agencies;
+alter publication supabase_realtime add table public.flight_templates;
+alter publication supabase_realtime add table public.template_schedules;
+alter publication supabase_realtime add table public.flights;

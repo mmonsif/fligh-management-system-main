@@ -243,7 +243,7 @@ export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot) => {
   ]);
 
   const failed = results.find((result) => result.error);
-  if (failed?.error) console.error('Supabase sync failed:', failed.error.message);
+  if (failed?.error) throw new Error(`Supabase sync failed: ${failed.error.message}`);
 
   const scheduleResult = await supabase.from('template_schedules').upsert(
     snapshot.templates
@@ -257,5 +257,58 @@ export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot) => {
       })),
     { onConflict: 'template_id' }
   );
-  if (scheduleResult.error) console.error('Supabase schedule sync failed:', scheduleResult.error.message);
+  if (scheduleResult.error) throw new Error(`Supabase schedule sync failed: ${scheduleResult.error.message}`);
+};
+
+export const subscribeToDatabaseChanges = (onSnapshot: (snapshot: DatabaseSnapshot) => void) => {
+  if (!isSupabaseConfigured || !supabase) return () => undefined;
+
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  const refreshSnapshot = () => {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      void loadDatabaseSnapshot()
+        .then((snapshot) => snapshot && onSnapshot(snapshot))
+        .catch((error) => console.error('Realtime database refresh failed:', error));
+    }, 0);
+  };
+
+  const channel = supabase
+    .channel('fms-database-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'flights' },
+      refreshSnapshot
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'airlines' },
+      refreshSnapshot
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'agencies' },
+      refreshSnapshot
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'flight_templates' },
+      refreshSnapshot
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'template_schedules' },
+      refreshSnapshot
+    );
+
+  void channel.subscribe((status) => {
+    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+      console.error(`Supabase realtime subscription ${status.toLowerCase()}.`);
+    }
+  });
+
+  return () => {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    void supabase?.removeChannel(channel);
+  };
 };
