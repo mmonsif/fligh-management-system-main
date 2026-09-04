@@ -2,6 +2,7 @@ import React, { FormEvent, useState } from 'react';
 import { AlertCircle, LockKeyhole, Plane, UserRound } from 'lucide-react';
 import { AuthUser, UserRole } from '../types';
 import { authenticateUser } from '../lib/database';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 interface LoginPageProps {
   onLogin: (user: AuthUser) => void;
@@ -22,6 +23,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
+
+    if (!isSupabaseConfigured) {
+      setError('Supabase is not configured for this deployment. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel, then redeploy.');
+      return;
+    }
 
     try {
       const account = await authenticateUser(username, password);
