@@ -17,6 +17,7 @@ import {
 import { CancelFlightModal } from './CancelFlightModal';
 import { TripFileModal } from './TripFileModal';
 import { IataDelayPickerModal } from '../Common/IataDelayPickerModal';
+import { UtcDateTimeInput } from '../Common/TimeInput';
 import {
   Plus,
   Trash2,
@@ -185,6 +186,8 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
     setTxtDestination(flight.destination || '');
     setTxtVia(flight.via || '');
     setTxtFinalDestination(flight.finalDestination || '');
+    setStaUtc(toUtcInputString(flight.staUtc));
+    setStdUtc(toUtcInputString(flight.stdUtc));
     setTxtAircraftType(flight.aircraftType || '');
     setSelectedAirlineId(flight.airlineId || airlines[0]?.airlineId || 1);
     setSelectedAgencyId(flight.agencyId || agencies[0]?.agencyId || 1);
@@ -613,11 +616,11 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
               </div>
               <div>
                 <label className="mb-1 block font-semibold text-slate-700">STA (UTC)</label>
-                <input type="datetime-local" value={staUtc} onChange={(e) => setStaUtc(e.target.value)} className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
+                <UtcDateTimeInput value={staUtc} onChange={setStaUtc} required className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
               </div>
               <div>
                 <label className="mb-1 block font-semibold text-slate-700">STD (UTC)</label>
-                <input type="datetime-local" value={stdUtc} onChange={(e) => setStdUtc(e.target.value)} className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
+                <UtcDateTimeInput value={stdUtc} onChange={setStdUtc} required className="glass-input w-full rounded-xl px-2.5 py-2 font-mono text-slate-900" />
               </div>
               <div>
                 <label className="mb-1 block font-semibold text-slate-700">Airline</label>
@@ -1206,22 +1209,22 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
 
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">STA (UTC)</label>
-                <input
-                  type="datetime-local"
+                <UtcDateTimeInput
                   value={staUtc}
                   disabled={isSelectedFlightCanceled}
-                  onChange={(e) => setStaUtc(e.target.value)}
+                  onChange={setStaUtc}
+                  required
                   className="glass-input w-full px-2.5 py-1.5 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40"
                 />
               </div>
 
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">STD (UTC)</label>
-                <input
-                  type="datetime-local"
+                <UtcDateTimeInput
                   value={stdUtc}
                   disabled={isSelectedFlightCanceled}
-                  onChange={(e) => setStdUtc(e.target.value)}
+                  onChange={setStdUtc}
+                  required
                   className="glass-input w-full px-2.5 py-1.5 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40"
                 />
               </div>
@@ -1355,11 +1358,10 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                   />
                   <span>Actual Time of Arrival (ATA UTC)</span>
                 </label>
-                <input
-                  type="datetime-local"
+                <UtcDateTimeInput
                   value={ataUtc}
                   disabled={!chkATA || isSelectedFlightCanceled}
-                  onChange={(e) => setAtaUtc(e.target.value)}
+                  onChange={setAtaUtc}
                   className="glass-input w-full px-2.5 py-1.5 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40"
                 />
               </div>
@@ -1376,11 +1378,10 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                   />
                   <span>Actual Time of Departure (ATD UTC)</span>
                 </label>
-                <input
-                  type="datetime-local"
+                <UtcDateTimeInput
                   value={atdUtc}
                   disabled={!chkATD || isSelectedFlightCanceled}
-                  onChange={(e) => setAtdUtc(e.target.value)}
+                  onChange={setAtdUtc}
                   className="glass-input w-full px-2.5 py-1.5 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40"
                 />
               </div>

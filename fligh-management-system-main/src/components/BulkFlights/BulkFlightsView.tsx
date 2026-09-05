@@ -14,6 +14,7 @@ import {
   Navigation,
 } from 'lucide-react';
 import { formatFlightRoute, isTriangleFlight } from '../../utils/flightUtils';
+import { TimeInput } from '../Common/TimeInput';
 
 interface BulkFlightsViewProps {
   templates: FlightTemplate[];
@@ -311,21 +312,19 @@ export const BulkFlightsView: React.FC<BulkFlightsViewProps> = ({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">STA (UTC Time)</label>
-                  <input
-                    type="time"
+                  <TimeInput
                     required
                     value={staTime}
-                    onChange={(e) => setStaTime(e.target.value)}
+                    onChange={setStaTime}
                     className="glass-input w-full px-3 py-1.5 rounded-xl font-mono text-slate-900 dark:text-slate-100"
                   />
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">STD (UTC Time)</label>
-                  <input
-                    type="time"
+                  <TimeInput
                     required
                     value={stdTime}
-                    onChange={(e) => setStdTime(e.target.value)}
+                    onChange={setStdTime}
                     className="glass-input w-full px-3 py-1.5 rounded-xl font-mono text-slate-900 dark:text-slate-100"
                   />
                 </div>
