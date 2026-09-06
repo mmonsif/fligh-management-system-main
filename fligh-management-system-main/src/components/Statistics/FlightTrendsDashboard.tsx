@@ -110,7 +110,7 @@ export const FlightTrendsDashboard: React.FC<FlightTrendsDashboardProps> = ({
       const onTimeFlights = dayFlights.filter((f) => f.flightStatus === 'Completed' && f.delayMinutesTotal === 0).length;
 
       const activeFlights = totalFlights - canceledFlights;
-      const onTimeRate = activeFlights > 0 ? Number(((onTimeFlights / activeFlights) * 100).toFixed(1)) : 100;
+      const onTimeRate = completedFlights > 0 ? Number(((onTimeFlights / completedFlights) * 100).toFixed(1)) : 0;
       const delayRate = activeFlights > 0 ? Number(((delayedFlights / activeFlights) * 100).toFixed(1)) : 0;
 
       const totalDelayMinutes = dayFlights.reduce((acc, f) => acc + (f.delayMinutesTotal || 0), 0);
@@ -150,8 +150,7 @@ export const FlightTrendsDashboard: React.FC<FlightTrendsDashboardProps> = ({
     const totalDelayMinutes = dailyData.reduce((acc, d) => acc + d.totalDelayMinutes, 0);
     const totalPax = dailyData.reduce((acc, d) => acc + d.totalPax, 0);
 
-    const activeFlights = totalFlights - totalCanceled;
-    const avgOnTimeRate = activeFlights > 0 ? (totalOnTime / activeFlights) * 100 : 0;
+    const avgOnTimeRate = totalCompleted > 0 ? (totalOnTime / totalCompleted) * 100 : 0;
     const avgDailyFlights = dailyData.length > 0 ? totalFlights / dailyData.length : 0;
     const avgDelayPerDelayedFlight = totalDelayed > 0 ? totalDelayMinutes / totalDelayed : 0;
 

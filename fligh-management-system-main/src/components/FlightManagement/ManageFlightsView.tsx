@@ -17,7 +17,7 @@ import {
 import { CancelFlightModal } from './CancelFlightModal';
 import { TripFileModal } from './TripFileModal';
 import { IataDelayPickerModal } from '../Common/IataDelayPickerModal';
-import { UtcDateTimeInput } from '../Common/TimeInput';
+import { TimeInput, UtcDateTimeInput } from '../Common/TimeInput';
 import {
   Plus,
   Trash2,
@@ -38,6 +38,24 @@ import {
   Navigation,
   Repeat,
 } from 'lucide-react';
+
+const getFilterParts = (value: Date) => {
+  const hours = value.getUTCHours();
+  return {
+    date: value.toISOString().slice(0, 10),
+    time: `${String(hours % 12 || 12).padStart(2, '0')}:${String(value.getUTCMinutes()).padStart(2, '0')}`,
+    period: hours >= 12 ? 'PM' : 'AM',
+  };
+};
+
+const toFilterUtc = (date: string, time: string, period: string) => {
+  const [hoursText, minutesText] = time.split(':');
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+  if (!date || !Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 1 || hours > 12 || minutes < 0 || minutes > 59) return null;
+  const hour24 = (hours % 12) + (period === 'PM' ? 12 : 0);
+  return parseDateTimeLocalAsUtc(`${date}T${String(hour24).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`);
+};
 
 interface ManageFlightsViewProps {
   flights: Flight[];
@@ -73,11 +91,18 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
   // Filter state
   const defaultFrom = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 16);
   const defaultTo = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 16);
-  const [filterFrom, setFilterFrom] = useState<string>(defaultFrom);
-  const [filterTo, setFilterTo] = useState<string>(defaultTo);
+  const defaultFromParts = getFilterParts(new Date(defaultFrom));
+  const defaultToParts = getFilterParts(new Date(defaultTo));
+  const [filterFromDate, setFilterFromDate] = useState(defaultFromParts.date);
+  const [filterFromTime, setFilterFromTime] = useState(defaultFromParts.time);
+  const [filterFromPeriod, setFilterFromPeriod] = useState(defaultFromParts.period);
+  const [filterToDate, setFilterToDate] = useState(defaultToParts.date);
+  const [filterToTime, setFilterToTime] = useState(defaultToParts.time);
+  const [filterToPeriod, setFilterToPeriod] = useState(defaultToParts.period);
   const [isFilterActive, setIsFilterActive] = useState<boolean>(false);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
 
   // Modals
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
@@ -291,8 +316,8 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       // Date range filter
       if (isFilterActive) {
         const flightTime = new Date(f.staUtc).getTime();
-        const fromTime = new Date(parseDateTimeLocalAsUtc(filterFrom) || '').getTime();
-        const toTime = new Date(parseDateTimeLocalAsUtc(filterTo) || '').getTime();
+        const fromTime = new Date(toFilterUtc(filterFromDate, filterFromTime, filterFromPeriod) || '').getTime();
+        const toTime = new Date(toFilterUtc(filterToDate, filterToTime, filterToPeriod) || '').getTime();
         if (flightTime < fromTime || flightTime > toTime) {
           return false;
         }
@@ -330,7 +355,15 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
 
       return true;
     });
-  }, [flights, isFilterActive, filterFrom, filterTo, statusFilter, filterTriangleOnly, searchTerm]);
+  }, [flights, isFilterActive, filterFromDate, filterFromTime, filterFromPeriod, filterToDate, filterToTime, filterToPeriod, statusFilter, filterTriangleOnly, searchTerm]);
+
+  const sortedFlights = useMemo(
+    () => [...filteredFlights].sort((a, b) => {
+      const difference = new Date(a.staUtc).getTime() - new Date(b.staUtc).getTime();
+      return sortOrder === 'newest' ? -difference : difference;
+    }),
+    [filteredFlights, sortOrder]
+  );
 
   // Handle Add Flight
   const handleOpenAddFlight = () => {
@@ -422,6 +455,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       agencyId: selectedAgencyId,
       agencyName: agency?.agencyName || selectedFlight?.agencyName,
       aircraftType: txtAircraftType.trim().toUpperCase(),
+      registration: txtRegistration.trim().toUpperCase(),
     });
 
     showToast('Flight schedule updated successfully.', 'success');
@@ -451,7 +485,6 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       incomingChildPax: txtIncomingChildPax.trim() ? parseInt(txtIncomingChildPax, 10) : null,
       incomingInfantPax: txtIncomingInfantPax.trim() ? parseInt(txtIncomingInfantPax, 10) : null,
       incomingTotalPax: computedIncomingTotalPax > 0 ? computedIncomingTotalPax : null,
-      registration: txtRegistration.trim().toUpperCase(),
       remarks: txtRemarks.trim(),
     });
 
@@ -779,25 +812,33 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
             <div className="flex items-center gap-1.5">
               <span className="text-slate-500 dark:text-slate-400">From</span>
               <input
-                type="datetime-local"
-                value={filterFrom}
-                onChange={(e) => setFilterFrom(e.target.value)}
+                type="date"
+                value={filterFromDate}
+                onChange={(e) => setFilterFromDate(e.target.value)}
                 className="glass-input px-2.5 py-1 text-xs rounded-xl font-mono text-slate-900 dark:text-slate-100"
               />
+              <TimeInput value={filterFromTime} onChange={setFilterFromTime} className="glass-input w-16 px-2 py-1 text-xs rounded-xl font-mono text-slate-900 dark:text-slate-100" />
+              <select value={filterFromPeriod} onChange={(e) => setFilterFromPeriod(e.target.value)} className="glass-input w-16 px-2 py-1 text-xs rounded-xl text-slate-900 dark:text-slate-100">
+                <option>AM</option><option>PM</option>
+              </select>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-slate-500 dark:text-slate-400">To</span>
               <input
-                type="datetime-local"
-                value={filterTo}
-                onChange={(e) => setFilterTo(e.target.value)}
+                type="date"
+                value={filterToDate}
+                onChange={(e) => setFilterToDate(e.target.value)}
                 className="glass-input px-2.5 py-1 text-xs rounded-xl font-mono text-slate-900 dark:text-slate-100"
               />
+              <TimeInput value={filterToTime} onChange={setFilterToTime} className="glass-input w-16 px-2 py-1 text-xs rounded-xl font-mono text-slate-900 dark:text-slate-100" />
+              <select value={filterToPeriod} onChange={(e) => setFilterToPeriod(e.target.value)} className="glass-input w-16 px-2 py-1 text-xs rounded-xl text-slate-900 dark:text-slate-100">
+                <option>AM</option><option>PM</option>
+              </select>
             </div>
             <button
               onClick={() => {
                 setIsFilterActive(true);
-                showToast(`Filter applied from ${filterFrom} to ${filterTo} UTC`, 'info');
+                showToast('Flight date and time filter applied.', 'info');
               }}
               className="glass-btn-primary px-3.5 py-1 rounded-xl font-semibold flex items-center gap-1 cursor-pointer"
             >
@@ -835,13 +876,20 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
           <div className="text-slate-500 dark:text-slate-400">
             {isFilterActive ? (
               <span className="text-sky-700 dark:text-sky-300 font-medium">
-                🔍 Filtered: Showing flights from <span className="font-mono text-slate-800 dark:text-slate-200">{formatUtcDateTime(parseDateTimeLocalAsUtc(filterFrom))}</span> to{' '}
-                <span className="font-mono text-slate-800 dark:text-slate-200">{formatUtcDateTime(parseDateTimeLocalAsUtc(filterTo))}</span> UTC ({filteredFlights.length} of {flights.length} flights)
+                🔍 Filtered: Showing flights from <span className="font-mono text-slate-800 dark:text-slate-200">{formatUtcDateTime(toFilterUtc(filterFromDate, filterFromTime, filterFromPeriod))}</span> to{' '}
+                <span className="font-mono text-slate-800 dark:text-slate-200">{formatUtcDateTime(toFilterUtc(filterToDate, filterToTime, filterToPeriod))}</span> UTC ({filteredFlights.length} of {flights.length} flights)
               </span>
             ) : (
               <span>Showing all {filteredFlights.length} flights</span>
             )}
           </div>
+          <label className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+            <span>Sort by STA</span>
+            <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as 'newest' | 'oldest')} className="glass-input px-2 py-1 rounded-xl text-[11px] text-slate-900 dark:text-slate-100">
+              <option value="newest">Recent first</option>
+              <option value="oldest">Oldest first</option>
+            </select>
+          </label>
 
           {/* Status Quick Pills */}
           <div className="flex items-center gap-1.5 overflow-x-auto">
@@ -912,7 +960,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredFlights.map((flight) => {
+                sortedFlights.map((flight) => {
                   const isSelected = selectedFlightId === flight.flightId;
                   const isCanceled = flight.flightStatus === 'Canceled';
                   const badge = getStatusBadgeStyle(flight.flightStatus);
@@ -1327,6 +1375,18 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                   className="glass-input w-full px-2.5 py-1.5 rounded-xl text-slate-900 dark:text-slate-100 disabled:opacity-40"
                 />
               </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Aircraft Registration / Tail</label>
+                <input
+                  type="text"
+                  value={txtRegistration}
+                  disabled={isSelectedFlightCanceled}
+                  onChange={(e) => setTxtRegistration(e.target.value.toUpperCase())}
+                  placeholder="e.g. SU-GDU"
+                  className="glass-input w-full px-2.5 py-1.5 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40"
+                />
+              </div>
             </div>
 
             <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-200 dark:border-white/10">
@@ -1410,18 +1470,6 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                 />
               </div>
 
-              {/* Tail Registration */}
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Aircraft Registration / Tail</label>
-                <input
-                  type="text"
-                  value={txtRegistration}
-                  disabled={isSelectedFlightCanceled}
-                  onChange={(e) => setTxtRegistration(e.target.value.toUpperCase())}
-                  placeholder="e.g. SU-GDU"
-                  className="glass-input w-full px-2.5 py-1.5 rounded-xl font-mono text-slate-900 dark:text-slate-100 disabled:opacity-40"
-                />
-              </div>
             </div>
 
             {/* Passenger Breakdown (Adults, Children, Infants, Auto Total) */}

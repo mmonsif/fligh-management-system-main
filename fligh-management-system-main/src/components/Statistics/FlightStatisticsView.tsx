@@ -71,7 +71,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
 
     const activeFlights = totalFlights - canceledFlights;
     const completionRate = activeFlights > 0 ? (completedFlights / activeFlights) * 100 : 0;
-    const onTimeRate = activeFlights > 0 ? (onTimeFlights / activeFlights) * 100 : 0;
+    const onTimeRate = completedFlights > 0 ? (onTimeFlights / completedFlights) * 100 : 0;
     const delayRate = activeFlights > 0 ? (delayedFlights / activeFlights) * 100 : 0;
     const cancelationRate = totalFlights > 0 ? (canceledFlights / totalFlights) * 100 : 0;
 
