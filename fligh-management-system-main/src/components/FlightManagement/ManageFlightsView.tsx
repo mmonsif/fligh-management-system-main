@@ -40,21 +40,18 @@ import {
 } from 'lucide-react';
 
 const getFilterParts = (value: Date) => {
-  const hours = value.getUTCHours();
   return {
     date: value.toISOString().slice(0, 10),
-    time: `${String(hours % 12 || 12).padStart(2, '0')}:${String(value.getUTCMinutes()).padStart(2, '0')}`,
-    period: hours >= 12 ? 'PM' : 'AM',
+    time: `${String(value.getUTCHours()).padStart(2, '0')}:${String(value.getUTCMinutes()).padStart(2, '0')}`,
   };
 };
 
-const toFilterUtc = (date: string, time: string, period: string) => {
+const toFilterUtc = (date: string, time: string) => {
   const [hoursText, minutesText] = time.split(':');
   const hours = Number(hoursText);
   const minutes = Number(minutesText);
-  if (!date || !Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 1 || hours > 12 || minutes < 0 || minutes > 59) return null;
-  const hour24 = (hours % 12) + (period === 'PM' ? 12 : 0);
-  return parseDateTimeLocalAsUtc(`${date}T${String(hour24).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`);
+  if (!date || !Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return parseDateTimeLocalAsUtc(`${date}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`);
 };
 
 interface ManageFlightsViewProps {
@@ -95,10 +92,8 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
   const defaultToParts = getFilterParts(new Date(defaultTo));
   const [filterFromDate, setFilterFromDate] = useState(defaultFromParts.date);
   const [filterFromTime, setFilterFromTime] = useState(defaultFromParts.time);
-  const [filterFromPeriod, setFilterFromPeriod] = useState(defaultFromParts.period);
   const [filterToDate, setFilterToDate] = useState(defaultToParts.date);
   const [filterToTime, setFilterToTime] = useState(defaultToParts.time);
-  const [filterToPeriod, setFilterToPeriod] = useState(defaultToParts.period);
   const [isFilterActive, setIsFilterActive] = useState<boolean>(false);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -316,8 +311,8 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       // Date range filter
       if (isFilterActive) {
         const flightTime = new Date(f.staUtc).getTime();
-        const fromTime = new Date(toFilterUtc(filterFromDate, filterFromTime, filterFromPeriod) || '').getTime();
-        const toTime = new Date(toFilterUtc(filterToDate, filterToTime, filterToPeriod) || '').getTime();
+        const fromTime = new Date(toFilterUtc(filterFromDate, filterFromTime) || '').getTime();
+        const toTime = new Date(toFilterUtc(filterToDate, filterToTime) || '').getTime();
         if (flightTime < fromTime || flightTime > toTime) {
           return false;
         }
@@ -355,7 +350,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
 
       return true;
     });
-  }, [flights, isFilterActive, filterFromDate, filterFromTime, filterFromPeriod, filterToDate, filterToTime, filterToPeriod, statusFilter, filterTriangleOnly, searchTerm]);
+  }, [flights, isFilterActive, filterFromDate, filterFromTime, filterToDate, filterToTime, statusFilter, filterTriangleOnly, searchTerm]);
 
   const sortedFlights = useMemo(
     () => [...filteredFlights].sort((a, b) => {
@@ -818,9 +813,6 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                 className="glass-input px-2.5 py-1 text-xs rounded-xl font-mono text-slate-900 dark:text-slate-100"
               />
               <TimeInput value={filterFromTime} onChange={setFilterFromTime} className="glass-input w-16 px-2 py-1 text-xs rounded-xl font-mono text-slate-900 dark:text-slate-100" />
-              <select value={filterFromPeriod} onChange={(e) => setFilterFromPeriod(e.target.value)} className="glass-input w-16 px-2 py-1 text-xs rounded-xl text-slate-900 dark:text-slate-100">
-                <option>AM</option><option>PM</option>
-              </select>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-slate-500 dark:text-slate-400">To</span>
@@ -831,9 +823,6 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                 className="glass-input px-2.5 py-1 text-xs rounded-xl font-mono text-slate-900 dark:text-slate-100"
               />
               <TimeInput value={filterToTime} onChange={setFilterToTime} className="glass-input w-16 px-2 py-1 text-xs rounded-xl font-mono text-slate-900 dark:text-slate-100" />
-              <select value={filterToPeriod} onChange={(e) => setFilterToPeriod(e.target.value)} className="glass-input w-16 px-2 py-1 text-xs rounded-xl text-slate-900 dark:text-slate-100">
-                <option>AM</option><option>PM</option>
-              </select>
             </div>
             <button
               onClick={() => {
@@ -876,8 +865,8 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
           <div className="text-slate-500 dark:text-slate-400">
             {isFilterActive ? (
               <span className="text-sky-700 dark:text-sky-300 font-medium">
-                🔍 Filtered: Showing flights from <span className="font-mono text-slate-800 dark:text-slate-200">{formatUtcDateTime(toFilterUtc(filterFromDate, filterFromTime, filterFromPeriod))}</span> to{' '}
-                <span className="font-mono text-slate-800 dark:text-slate-200">{formatUtcDateTime(toFilterUtc(filterToDate, filterToTime, filterToPeriod))}</span> UTC ({filteredFlights.length} of {flights.length} flights)
+                🔍 Filtered: Showing flights from <span className="font-mono text-slate-800 dark:text-slate-200">{formatUtcDateTime(toFilterUtc(filterFromDate, filterFromTime))}</span> to{' '}
+                <span className="font-mono text-slate-800 dark:text-slate-200">{formatUtcDateTime(toFilterUtc(filterToDate, filterToTime))}</span> UTC ({filteredFlights.length} of {flights.length} flights)
               </span>
             ) : (
               <span>Showing all {filteredFlights.length} flights</span>
