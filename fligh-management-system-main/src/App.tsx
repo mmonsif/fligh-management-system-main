@@ -15,7 +15,12 @@ import { ManageAirlinesView } from './components/Airlines/ManageAirlinesView';
 import { ManageAgenciesView } from './components/Agencies/ManageAgenciesView';
 import { LoginPage } from './components/LoginPage';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
-import { loadDatabaseSnapshot, saveDatabaseSnapshot, subscribeToDatabaseChanges } from './lib/database';
+import {
+  DatabaseSnapshot,
+  loadDatabaseSnapshot,
+  saveDatabaseSnapshot,
+  subscribeToDatabaseChanges,
+} from './lib/database';
 
 const roleTabs: Record<UserRole, ActiveTab[]> = {
   staff: ['manage-flights'],
@@ -36,6 +41,7 @@ export default function App() {
   });
   const [databaseLoaded, setDatabaseLoaded] = useState(!isSupabaseConfigured);
   const skipNextDatabaseSave = useRef(false);
+  const lastPersistedSnapshot = useRef<DatabaseSnapshot | undefined>(undefined);
 
   const allowedTabs = user ? roleTabs[user.role] : [];
 
@@ -72,6 +78,7 @@ export default function App() {
         setAirlines(snapshot.airlines);
         setAgencies(snapshot.agencies);
         setTemplates(snapshot.templates);
+        lastPersistedSnapshot.current = snapshot;
         setDatabaseLoaded(true);
       })
       .catch((error) => {
@@ -86,12 +93,41 @@ export default function App() {
   useEffect(() => {
     if (!isSupabaseConfigured) return undefined;
 
-    return subscribeToDatabaseChanges((snapshot) => {
+    return subscribeToDatabaseChanges((change) => {
       skipNextDatabaseSave.current = true;
-      setFlights(snapshot.flights);
-      setAirlines(snapshot.airlines);
-      setAgencies(snapshot.agencies);
-      setTemplates(snapshot.templates);
+
+      if (change.table === 'flights') {
+        setFlights((current) => change.eventType === 'DELETE'
+          ? current.filter((flight) => flight.flightId !== change.id)
+          : current.some((flight) => flight.flightId === change.id)
+            ? current.map((flight) => flight.flightId === change.id ? change.record! : flight)
+            : [change.record!, ...current]);
+      } else if (change.table === 'airlines') {
+        setAirlines((current) => change.eventType === 'DELETE'
+          ? current.filter((airline) => airline.airlineId !== change.id)
+          : current.some((airline) => airline.airlineId === change.id)
+            ? current.map((airline) => airline.airlineId === change.id ? change.record! : airline)
+            : [...current, change.record!]);
+      } else if (change.table === 'agencies') {
+        setAgencies((current) => change.eventType === 'DELETE'
+          ? current.filter((agency) => agency.agencyId !== change.id)
+          : current.some((agency) => agency.agencyId === change.id)
+            ? current.map((agency) => agency.agencyId === change.id ? change.record! : agency)
+            : [...current, change.record!]);
+      } else if (change.table === 'flight_templates') {
+        setTemplates((current) => change.eventType === 'DELETE'
+          ? current.filter((template) => template.templateId !== change.id)
+          : current.some((template) => template.templateId === change.id)
+            ? current.map((template) => template.templateId === change.id
+              ? { ...change.record!, schedule: template.schedule }
+              : template)
+            : [...current, change.record!]);
+      } else {
+        setTemplates((current) => current.map((template) => {
+          if (template.templateId !== change.id) return template;
+          return { ...template, schedule: change.eventType === 'DELETE' ? undefined : change.record! };
+        }));
+      }
     });
   }, []);
 
@@ -212,9 +248,12 @@ export default function App() {
       return;
     }
 
-    void saveDatabaseSnapshot({ flights, airlines, agencies, templates }).catch((error) => {
-      console.error('Supabase sync failed:', error);
-    });
+    const snapshot = { flights, airlines, agencies, templates };
+    void saveDatabaseSnapshot(snapshot, lastPersistedSnapshot.current)
+      .then(() => {
+        lastPersistedSnapshot.current = snapshot;
+      })
+      .catch((error) => console.error('Supabase sync failed:', error));
   }, [databaseLoaded, flights, airlines, agencies, templates]);
 
   if (!user) {

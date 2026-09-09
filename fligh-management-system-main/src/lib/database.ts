@@ -1,12 +1,19 @@
 import { Agency, Airline, AuthUser, Flight, FlightTemplate, TemplateSchedule } from '../types';
 import { isSupabaseConfigured, supabase } from './supabase';
 
-interface DatabaseSnapshot {
+export interface DatabaseSnapshot {
   flights: Flight[];
   airlines: Airline[];
   agencies: Agency[];
   templates: FlightTemplate[];
 }
+
+export type DatabaseChange =
+  | { table: 'flights'; eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: Flight | null; id: number }
+  | { table: 'airlines'; eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: Airline | null; id: number }
+  | { table: 'agencies'; eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: Agency | null; id: number }
+  | { table: 'flight_templates'; eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: FlightTemplate | null; id: number }
+  | { table: 'template_schedules'; eventType: 'INSERT' | 'UPDATE' | 'DELETE'; record: TemplateSchedule | null; id: number };
 
 type DatabaseAirline = {
   airline_id: number;
@@ -83,6 +90,82 @@ type DatabaseFlight = {
   delay_minutes_total: number;
 };
 
+const mapAirline = (row: DatabaseAirline): Airline => ({
+  airlineId: row.airline_id,
+  airlineName: row.airline_name,
+  iataCode: row.iata_code || undefined,
+  country: row.country || undefined,
+  handlingCompany: row.handling_company || undefined,
+});
+
+const mapAgency = (row: DatabaseAgency): Agency => ({
+  agencyId: row.agency_id,
+  agencyName: row.agency_name,
+  contactEmail: row.contact_email || undefined,
+  phone: row.phone || undefined,
+});
+
+const mapSchedule = (row: DatabaseSchedule): TemplateSchedule => ({
+  scheduleId: row.schedule_id,
+  templateId: row.template_id,
+  frequency: row.frequency,
+  daysOfWeek: row.days_of_week,
+  startDate: row.start_date,
+  endDate: row.end_date,
+});
+
+const mapTemplate = (row: DatabaseTemplate, schedule?: TemplateSchedule): FlightTemplate => ({
+  templateId: row.template_id,
+  templateName: row.template_name,
+  inboundFlightNumber: row.inbound_flight_number,
+  outboundFlightNumber: row.outbound_flight_number,
+  staTimeOfDay: row.sta_time_of_day.slice(0, 5),
+  stdTimeOfDay: row.std_time_of_day.slice(0, 5),
+  origin: row.origin,
+  destination: row.destination,
+  via: row.via || undefined,
+  finalDestination: row.final_destination,
+  airlineId: row.airline_id,
+  agencyId: row.agency_id,
+  aircraftType: row.aircraft_type,
+  schedule,
+});
+
+const mapFlight = (row: DatabaseFlight): Flight => ({
+  flightId: row.flight_id,
+  inboundFlightNumber: row.inbound_flight_number,
+  outboundFlightNumber: row.outbound_flight_number,
+  staUtc: row.sta_utc,
+  stdUtc: row.std_utc,
+  ataUtc: row.ata_utc,
+  atdUtc: row.atd_utc,
+  origin: row.origin,
+  destination: row.destination,
+  via: row.via || undefined,
+  finalDestination: row.final_destination,
+  airlineId: row.airline_id,
+  airlineName: row.airline_name,
+  agencyId: row.agency_id,
+  agencyName: row.agency_name,
+  aircraftType: row.aircraft_type,
+  registration: row.registration,
+  remarks: row.remarks,
+  numberOfBags: row.number_of_bags,
+  incomingNumberOfBags: row.incoming_number_of_bags,
+  adultPax: row.adult_pax,
+  childPax: row.child_pax,
+  infantPax: row.infant_pax,
+  totalPax: row.total_pax,
+  incomingAdultPax: row.incoming_adult_pax,
+  incomingChildPax: row.incoming_child_pax,
+  incomingInfantPax: row.incoming_infant_pax,
+  incomingTotalPax: row.incoming_total_pax,
+  delays: row.delays,
+  flightStatus: row.flight_status,
+  cancellationReason: row.cancellation_reason || undefined,
+  delayMinutesTotal: row.delay_minutes_total,
+});
+
 const failIfError = <T>(result: { data: T | null; error: { message: string } | null }) => {
   if (result.error) throw new Error(result.error.message);
   return result.data || [];
@@ -99,77 +182,13 @@ export const loadDatabaseSnapshot = async (): Promise<DatabaseSnapshot | null> =
     supabase.from('template_schedules').select('*').order('template_id'),
   ]);
 
-  const airlines = failIfError<DatabaseAirline[]>(airlinesResult).map((row) => ({
-    airlineId: row.airline_id,
-    airlineName: row.airline_name,
-    iataCode: row.iata_code || undefined,
-    country: row.country || undefined,
-    handlingCompany: row.handling_company || undefined,
-  }));
-  const agencies = failIfError<DatabaseAgency[]>(agenciesResult).map((row) => ({
-    agencyId: row.agency_id,
-    agencyName: row.agency_name,
-    contactEmail: row.contact_email || undefined,
-    phone: row.phone || undefined,
-  }));
-  const schedules = failIfError<DatabaseSchedule[]>(schedulesResult).map((row) => ({
-    scheduleId: row.schedule_id,
-    templateId: row.template_id,
-    frequency: row.frequency,
-    daysOfWeek: row.days_of_week,
-    startDate: row.start_date,
-    endDate: row.end_date,
-  }));
-  const templates = failIfError<DatabaseTemplate[]>(templatesResult).map((row) => ({
-    templateId: row.template_id,
-    templateName: row.template_name,
-    inboundFlightNumber: row.inbound_flight_number,
-    outboundFlightNumber: row.outbound_flight_number,
-    staTimeOfDay: row.sta_time_of_day.slice(0, 5),
-    stdTimeOfDay: row.std_time_of_day.slice(0, 5),
-    origin: row.origin,
-    destination: row.destination,
-    via: row.via || undefined,
-    finalDestination: row.final_destination,
-    airlineId: row.airline_id,
-    agencyId: row.agency_id,
-    aircraftType: row.aircraft_type,
-    schedule: schedules.find((schedule) => schedule.templateId === row.template_id),
-  }));
-  const flights = failIfError<DatabaseFlight[]>(flightsResult).map((row) => ({
-    flightId: row.flight_id,
-    inboundFlightNumber: row.inbound_flight_number,
-    outboundFlightNumber: row.outbound_flight_number,
-    staUtc: row.sta_utc,
-    stdUtc: row.std_utc,
-    ataUtc: row.ata_utc,
-    atdUtc: row.atd_utc,
-    origin: row.origin,
-    destination: row.destination,
-    via: row.via || undefined,
-    finalDestination: row.final_destination,
-    airlineId: row.airline_id,
-    airlineName: row.airline_name,
-    agencyId: row.agency_id,
-    agencyName: row.agency_name,
-    aircraftType: row.aircraft_type,
-    registration: row.registration,
-    remarks: row.remarks,
-    numberOfBags: row.number_of_bags,
-    incomingNumberOfBags: row.incoming_number_of_bags,
-    adultPax: row.adult_pax,
-    childPax: row.child_pax,
-    infantPax: row.infant_pax,
-    totalPax: row.total_pax,
-    incomingAdultPax: row.incoming_adult_pax,
-    incomingChildPax: row.incoming_child_pax,
-    incomingInfantPax: row.incoming_infant_pax,
-    incomingTotalPax: row.incoming_total_pax,
-    delays: row.delays,
-    flightStatus: row.flight_status,
-    cancellationReason: row.cancellation_reason || undefined,
-    delayMinutesTotal: row.delay_minutes_total,
-  }));
+  const airlines = failIfError<DatabaseAirline[]>(airlinesResult).map(mapAirline);
+  const agencies = failIfError<DatabaseAgency[]>(agenciesResult).map(mapAgency);
+  const schedules = failIfError<DatabaseSchedule[]>(schedulesResult).map(mapSchedule);
+  const templates = failIfError<DatabaseTemplate[]>(templatesResult).map((row) =>
+    mapTemplate(row, schedules.find((schedule) => schedule.templateId === row.template_id))
+  );
+  const flights = failIfError<DatabaseFlight[]>(flightsResult).map(mapFlight);
 
   return { flights, airlines, agencies, templates };
 };
@@ -189,8 +208,18 @@ export const authenticateUser = async (username: string, password: string): Prom
   return { username: account.username, role: account.role as AuthUser['role'] };
 };
 
-export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot) => {
+export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot, previousSnapshot?: DatabaseSnapshot) => {
   if (!isSupabaseConfigured || !supabase) return;
+
+  const changedRows = <T extends object>(currentRows: T[], previousRows: T[] | undefined, key: keyof T) => {
+    const previousById = new Map(previousRows?.map((row) => [row[key], JSON.stringify(row)]));
+    return currentRows.filter((row) => previousById.get(row[key]) !== JSON.stringify(row));
+  };
+
+  const changedFlights = changedRows(snapshot.flights, previousSnapshot?.flights, 'flightId');
+  const changedAirlines = changedRows(snapshot.airlines, previousSnapshot?.airlines, 'airlineId');
+  const changedAgencies = changedRows(snapshot.agencies, previousSnapshot?.agencies, 'agencyId');
+  const changedTemplates = changedRows(snapshot.templates, previousSnapshot?.templates, 'templateId');
 
   const existingFlightsResult = await supabase.from('flights').select('flight_id');
   const existingFlightIds = new Set((existingFlightsResult.data ?? []).map((row) => row.flight_id));
@@ -203,20 +232,20 @@ export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot) => {
   }
 
   const results = await Promise.all([
-    supabase.from('airlines').upsert(snapshot.airlines.map((airline) => ({
+    supabase.from('airlines').upsert(changedAirlines.map((airline) => ({
       airline_id: airline.airlineId,
       airline_name: airline.airlineName,
       iata_code: airline.iataCode || null,
       country: airline.country || null,
       handling_company: airline.handlingCompany || null,
     }))),
-    supabase.from('agencies').upsert(snapshot.agencies.map((agency) => ({
+    supabase.from('agencies').upsert(changedAgencies.map((agency) => ({
       agency_id: agency.agencyId,
       agency_name: agency.agencyName,
       contact_email: agency.contactEmail || null,
       phone: agency.phone || null,
     }))),
-    supabase.from('flight_templates').upsert(snapshot.templates.map((template) => ({
+    supabase.from('flight_templates').upsert(changedTemplates.map((template) => ({
       template_id: template.templateId,
       template_name: template.templateName,
       inbound_flight_number: template.inboundFlightNumber,
@@ -231,7 +260,7 @@ export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot) => {
       agency_id: template.agencyId,
       aircraft_type: template.aircraftType,
     }))),
-    supabase.from('flights').upsert(snapshot.flights.map((flight) => ({
+    supabase.from('flights').upsert(changedFlights.map((flight) => ({
       flight_id: flight.flightId,
       inbound_flight_number: flight.inboundFlightNumber,
       outbound_flight_number: flight.outboundFlightNumber,
@@ -271,7 +300,7 @@ export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot) => {
   if (failed?.error) throw new Error(`Supabase sync failed: ${failed.error.message}`);
 
   const scheduleResult = await supabase.from('template_schedules').upsert(
-    snapshot.templates
+    changedTemplates
       .filter((template) => template.schedule)
       .map((template) => ({
         template_id: template.templateId,
@@ -285,17 +314,24 @@ export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot) => {
   if (scheduleResult.error) throw new Error(`Supabase schedule sync failed: ${scheduleResult.error.message}`);
 };
 
-export const subscribeToDatabaseChanges = (onSnapshot: (snapshot: DatabaseSnapshot) => void) => {
+export const subscribeToDatabaseChanges = (onChange: (change: DatabaseChange) => void) => {
   if (!isSupabaseConfigured || !supabase) return () => undefined;
 
-  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-  const refreshSnapshot = () => {
-    if (refreshTimer) clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(() => {
-      void loadDatabaseSnapshot()
-        .then((snapshot) => snapshot && onSnapshot(snapshot))
-        .catch((error) => console.error('Realtime database refresh failed:', error));
-    }, 0);
+  const handleChange = (table: DatabaseChange['table'], payload: { eventType: string; new: unknown; old: unknown }) => {
+    const eventType = payload.eventType as DatabaseChange['eventType'];
+    const source = (eventType === 'DELETE' ? payload.old : payload.new) as Record<string, unknown>;
+
+    if (table === 'flights') {
+      onChange({ table, eventType, id: Number(source.flight_id), record: eventType === 'DELETE' ? null : mapFlight(source as unknown as DatabaseFlight) });
+    } else if (table === 'airlines') {
+      onChange({ table, eventType, id: Number(source.airline_id), record: eventType === 'DELETE' ? null : mapAirline(source as unknown as DatabaseAirline) });
+    } else if (table === 'agencies') {
+      onChange({ table, eventType, id: Number(source.agency_id), record: eventType === 'DELETE' ? null : mapAgency(source as unknown as DatabaseAgency) });
+    } else if (table === 'flight_templates') {
+      onChange({ table, eventType, id: Number(source.template_id), record: eventType === 'DELETE' ? null : mapTemplate(source as unknown as DatabaseTemplate) });
+    } else {
+      onChange({ table, eventType, id: Number(source.template_id), record: eventType === 'DELETE' ? null : mapSchedule(source as unknown as DatabaseSchedule) });
+    }
   };
 
   const channel = supabase
@@ -303,27 +339,27 @@ export const subscribeToDatabaseChanges = (onSnapshot: (snapshot: DatabaseSnapsh
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'flights' },
-      refreshSnapshot
+      (payload) => handleChange('flights', payload)
     )
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'airlines' },
-      refreshSnapshot
+      (payload) => handleChange('airlines', payload)
     )
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'agencies' },
-      refreshSnapshot
+      (payload) => handleChange('agencies', payload)
     )
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'flight_templates' },
-      refreshSnapshot
+      (payload) => handleChange('flight_templates', payload)
     )
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'template_schedules' },
-      refreshSnapshot
+      (payload) => handleChange('template_schedules', payload)
     );
 
   void channel.subscribe((status) => {
@@ -333,7 +369,6 @@ export const subscribeToDatabaseChanges = (onSnapshot: (snapshot: DatabaseSnapsh
   });
 
   return () => {
-    if (refreshTimer) clearTimeout(refreshTimer);
     void supabase?.removeChannel(channel);
   };
 };
