@@ -30,7 +30,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
   const [dateFrom, setDateFrom] = useState(defaultFrom);
   const [dateTo, setDateTo] = useState(defaultTo);
   const [activeReportTab, setActiveReportTab] = useState<
-    'summary' | 'details' | 'airlines' | 'agencies' | 'delays'
+    'summary' | 'details' | 'airlines' | 'agencies' | 'destinations' | 'aircraft' | 'otp' | 'delays'
   >('summary');
 
   // Filter flights within selected date range
@@ -44,6 +44,11 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
     });
   }, [flights, dateFrom, dateTo]);
 
+  const completedPeriodFlights = useMemo(
+    () => periodFlights.filter((f) => f.flightStatus === 'Completed'),
+    [periodFlights]
+  );
+
   // Aggregate Key Performance Indicators
   const stats = useMemo(() => {
     const totalFlights = periodFlights.length;
@@ -52,22 +57,22 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
     const delayedFlights = periodFlights.filter((f) => f.delayMinutesTotal > 0 && f.flightStatus !== 'Canceled').length;
     const onTimeFlights = periodFlights.filter((f) => f.delayMinutesTotal === 0 && f.flightStatus === 'Completed').length;
 
-    const totalAdultPax = periodFlights.reduce((acc, f) => acc + (f.adultPax || 0), 0);
-    const totalChildPax = periodFlights.reduce((acc, f) => acc + (f.childPax || 0), 0);
-    const totalInfantPax = periodFlights.reduce((acc, f) => acc + (f.infantPax || 0), 0);
-    const totalPaxOut = periodFlights.reduce(
+    const totalAdultPax = completedPeriodFlights.reduce((acc, f) => acc + (f.adultPax || 0), 0);
+    const totalChildPax = completedPeriodFlights.reduce((acc, f) => acc + (f.childPax || 0), 0);
+    const totalInfantPax = completedPeriodFlights.reduce((acc, f) => acc + (f.infantPax || 0), 0);
+    const totalPaxOut = completedPeriodFlights.reduce(
       (acc, f) => acc + (f.totalPax ?? getPassengerTotal(f.adultPax, f.childPax, f.infantPax)),
       0
     );
-    const totalIncomingAdultPax = periodFlights.reduce((acc, f) => acc + (f.incomingAdultPax || 0), 0);
-    const totalIncomingChildPax = periodFlights.reduce((acc, f) => acc + (f.incomingChildPax || 0), 0);
-    const totalIncomingInfantPax = periodFlights.reduce((acc, f) => acc + (f.incomingInfantPax || 0), 0);
-    const totalPaxIn = periodFlights.reduce(
+    const totalIncomingAdultPax = completedPeriodFlights.reduce((acc, f) => acc + (f.incomingAdultPax || 0), 0);
+    const totalIncomingChildPax = completedPeriodFlights.reduce((acc, f) => acc + (f.incomingChildPax || 0), 0);
+    const totalIncomingInfantPax = completedPeriodFlights.reduce((acc, f) => acc + (f.incomingInfantPax || 0), 0);
+    const totalPaxIn = completedPeriodFlights.reduce(
       (acc, f) => acc + (f.incomingTotalPax ?? getPassengerTotal(f.incomingAdultPax, f.incomingChildPax, f.incomingInfantPax)),
       0
     );
-    const totalBagsOut = periodFlights.reduce((acc, f) => acc + (f.numberOfBags || 0), 0);
-    const totalBagsIn = periodFlights.reduce((acc, f) => acc + (f.incomingNumberOfBags || 0), 0);
+    const totalBagsOut = completedPeriodFlights.reduce((acc, f) => acc + (f.numberOfBags || 0), 0);
+    const totalBagsIn = completedPeriodFlights.reduce((acc, f) => acc + (f.incomingNumberOfBags || 0), 0);
 
     const activeFlights = totalFlights - canceledFlights;
     const completionRate = activeFlights > 0 ? (completedFlights / activeFlights) * 100 : 0;
@@ -75,18 +80,18 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
     const delayRate = activeFlights > 0 ? (delayedFlights / activeFlights) * 100 : 0;
     const cancelationRate = totalFlights > 0 ? (canceledFlights / totalFlights) * 100 : 0;
 
-    const totalDelayMinutes = periodFlights.reduce((acc, f) => acc + (f.delayMinutesTotal || 0), 0);
-    const flightsWithDelays = periodFlights.filter((f) => f.delayMinutesTotal > 0);
+    const totalDelayMinutes = completedPeriodFlights.reduce((acc, f) => acc + (f.delayMinutesTotal || 0), 0);
+    const flightsWithDelays = completedPeriodFlights.filter((f) => f.delayMinutesTotal > 0);
     const avgDelayMinutes = flightsWithDelays.length > 0 ? totalDelayMinutes / flightsWithDelays.length : 0;
 
-    const flightsWithPax = periodFlights.filter((f) => (f.totalPax || 0) > 0);
+    const flightsWithPax = completedPeriodFlights.filter((f) => (f.totalPax || 0) > 0);
     const avgPaxPerFlight = flightsWithPax.length > 0 ? totalPaxOut / flightsWithPax.length : 0;
 
-    const flightsWithBags = periodFlights.filter((f) => (f.numberOfBags || 0) > 0);
+    const flightsWithBags = completedPeriodFlights.filter((f) => (f.numberOfBags || 0) > 0);
     const avgBagsPerFlight = flightsWithBags.length > 0 ? totalBagsOut / flightsWithBags.length : 0;
 
-    const uniqueAirlines = new Set(periodFlights.map((f) => f.airlineId)).size;
-    const uniqueAgencies = new Set(periodFlights.map((f) => f.agencyId)).size;
+    const uniqueAirlines = new Set(completedPeriodFlights.map((f) => f.airlineId)).size;
+    const uniqueAgencies = new Set(completedPeriodFlights.map((f) => f.agencyId)).size;
 
     return {
       totalFlights,
@@ -114,7 +119,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
       uniqueAirlines,
       uniqueAgencies,
     };
-  }, [periodFlights]);
+  }, [periodFlights, completedPeriodFlights]);
 
   // Aggregate Airline Performance
   const airlineReport = useMemo(() => {
@@ -132,7 +137,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
       }
     >();
 
-    periodFlights.forEach((f) => {
+    completedPeriodFlights.forEach((f) => {
       let item = map.get(f.airlineId);
       if (!item) {
         item = {
@@ -168,7 +173,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
         avgBags,
       };
     });
-  }, [periodFlights]);
+  }, [completedPeriodFlights]);
 
   // Aggregate Agency Performance
   const agencyReport = useMemo(() => {
@@ -184,7 +189,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
       }
     >();
 
-    periodFlights.forEach((f) => {
+    completedPeriodFlights.forEach((f) => {
       let item = map.get(f.agencyId);
       if (!item) {
         item = {
@@ -214,13 +219,13 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
         avgBags,
       };
     });
-  }, [periodFlights]);
+  }, [completedPeriodFlights]);
 
   // Aggregate Delay Code Analysis
   const delayReport = useMemo(() => {
     const map = new Map<string, { occurrences: number; totalMinutes: number }>();
 
-    periodFlights.forEach((f) => {
+    completedPeriodFlights.forEach((f) => {
       f.delays.forEach((d) => {
         if (!d.code) return;
         const item = map.get(d.code) || { occurrences: 0, totalMinutes: 0 };
@@ -243,7 +248,56 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
         };
       })
       .sort((a, b) => b.totalMinutes - a.totalMinutes);
-  }, [periodFlights]);
+  }, [completedPeriodFlights]);
+
+  const destinationReport = useMemo(() => {
+    const map = new Map<string, number>();
+    completedPeriodFlights.forEach((f) => {
+      const destination = f.finalDestination || f.destination || 'Unknown';
+      map.set(destination, (map.get(destination) || 0) + 1);
+    });
+    return Array.from(map.entries())
+      .map(([destination, flightsCount]) => ({ destination, flights: flightsCount }))
+      .sort((a, b) => b.flights - a.flights);
+  }, [completedPeriodFlights]);
+
+  const aircraftReport = useMemo(() => {
+    const map = new Map<string, number>();
+    completedPeriodFlights.forEach((f) => {
+      const aircraftType = f.aircraftType || 'Unknown';
+      map.set(aircraftType, (map.get(aircraftType) || 0) + 1);
+    });
+    return Array.from(map.entries())
+      .map(([aircraftType, flightsCount]) => ({ aircraftType, flights: flightsCount }))
+      .sort((a, b) => b.flights - a.flights);
+  }, [completedPeriodFlights]);
+
+  const delayOtpReport = useMemo(() => {
+    const codes = Array.from({ length: 9 }, (_, index) => String(31 + index));
+    return codes.map((code) => {
+      const affectedFlights = completedPeriodFlights.filter((f) => f.delays.some((d) => d.code === code));
+      const totalMinutes = affectedFlights.reduce(
+        (total, f) => total + f.delays.filter((d) => d.code === code).reduce((minutes, d) => minutes + d.minutes, 0),
+        0
+      );
+      return {
+        code,
+        description: getDelayCodeInfo(code)?.description || 'IATA delay code',
+        affectedFlights: affectedFlights.length,
+        totalMinutes,
+        flights: affectedFlights.length,
+        otpImpact: completedPeriodFlights.length > 0 ? (affectedFlights.length / completedPeriodFlights.length) * 100 : 0,
+      };
+    });
+  }, [completedPeriodFlights]);
+
+  const otp31To39Rate = useMemo(() => {
+    if (completedPeriodFlights.length === 0) return 0;
+    const delayedBy31To39 = completedPeriodFlights.filter((f) =>
+      f.delays.some((d) => Number(d.code) >= 31 && Number(d.code) <= 39)
+    ).length;
+    return ((completedPeriodFlights.length - delayedBy31To39) / completedPeriodFlights.length) * 100;
+  }, [completedPeriodFlights]);
 
   // Handle Export All Reports to Excel CSV
   const handleExportAllToExcel = () => {
@@ -528,6 +582,36 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
             🏢 Agency Handling Report ({agencyReport.length})
           </button>
           <button
+            onClick={() => setActiveReportTab('destinations')}
+            className={`px-4 py-2.5 text-xs font-bold whitespace-nowrap border-b-2 transition-all cursor-pointer ${
+              activeReportTab === 'destinations'
+                ? 'border-sky-500 text-sky-800 dark:text-sky-200 bg-sky-50/80 dark:bg-sky-500/20'
+                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            Destination Breakdown ({destinationReport.length})
+          </button>
+          <button
+            onClick={() => setActiveReportTab('aircraft')}
+            className={`px-4 py-2.5 text-xs font-bold whitespace-nowrap border-b-2 transition-all cursor-pointer ${
+              activeReportTab === 'aircraft'
+                ? 'border-sky-500 text-sky-800 dark:text-sky-200 bg-sky-50/80 dark:bg-sky-500/20'
+                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            Aircraft Breakdown ({aircraftReport.length})
+          </button>
+          <button
+            onClick={() => setActiveReportTab('otp')}
+            className={`px-4 py-2.5 text-xs font-bold whitespace-nowrap border-b-2 transition-all cursor-pointer ${
+              activeReportTab === 'otp'
+                ? 'border-sky-500 text-sky-800 dark:text-sky-200 bg-sky-50/80 dark:bg-sky-500/20'
+                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            OTP by Codes 31-39
+          </button>
+          <button
             onClick={() => setActiveReportTab('delays')}
             className={`px-4 py-2.5 text-xs font-bold whitespace-nowrap border-b-2 transition-all cursor-pointer ${
               activeReportTab === 'delays'
@@ -782,6 +866,75 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                     <td className="p-3 text-right text-slate-800 dark:text-slate-200">{g.totalBags.toLocaleString()}</td>
                     <td className="p-3 text-right text-slate-800 dark:text-slate-200">{g.avgPax.toFixed(1)}</td>
                     <td className="p-3 text-right text-slate-800 dark:text-slate-200">{g.avgBags.toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {activeReportTab === 'destinations' && (
+          <div className="overflow-x-auto">
+            <div className="border-b border-slate-200 bg-sky-50/70 px-4 py-3 text-xs text-slate-700 dark:border-white/10 dark:bg-sky-500/10 dark:text-slate-300">
+              Completed flights only · {completedPeriodFlights.length} completed flights in the selected period
+            </div>
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-100/80 dark:bg-white/5 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-white/10">
+                <tr><th className="p-3">Destination</th><th className="p-3 text-right">Completed Flights</th><th className="p-3 text-right">Share</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-white/5 font-mono">
+                {destinationReport.map((item) => (
+                  <tr key={item.destination} className="hover:bg-slate-100/60 dark:hover:bg-white/5">
+                    <td className="p-3 font-sans font-bold text-slate-900 dark:text-slate-100">{item.destination}</td>
+                    <td className="p-3 text-right">{item.flights}</td>
+                    <td className="p-3 text-right text-sky-700 dark:text-sky-300">{completedPeriodFlights.length ? ((item.flights / completedPeriodFlights.length) * 100).toFixed(1) : '0.0'}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {activeReportTab === 'aircraft' && (
+          <div className="overflow-x-auto">
+            <div className="border-b border-slate-200 bg-sky-50/70 px-4 py-3 text-xs text-slate-700 dark:border-white/10 dark:bg-sky-500/10 dark:text-slate-300">
+              Completed flights only · {completedPeriodFlights.length} completed flights in the selected period
+            </div>
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-100/80 dark:bg-white/5 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-white/10">
+                <tr><th className="p-3">Aircraft Type</th><th className="p-3 text-right">Completed Flights</th><th className="p-3 text-right">Share</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-white/5 font-mono">
+                {aircraftReport.map((item) => (
+                  <tr key={item.aircraftType} className="hover:bg-slate-100/60 dark:hover:bg-white/5">
+                    <td className="p-3 font-sans font-bold text-slate-900 dark:text-slate-100">{item.aircraftType}</td>
+                    <td className="p-3 text-right">{item.flights}</td>
+                    <td className="p-3 text-right text-sky-700 dark:text-sky-300">{completedPeriodFlights.length ? ((item.flights / completedPeriodFlights.length) * 100).toFixed(1) : '0.0'}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {activeReportTab === 'otp' && (
+          <div className="overflow-x-auto">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-sky-50/70 px-4 py-3 text-xs dark:border-white/10 dark:bg-sky-500/10">
+              <span className="text-slate-700 dark:text-slate-300">Completed flights only · OTP excludes flights with delay codes 31-39</span>
+              <span className="font-bold text-emerald-700 dark:text-emerald-300">OTP: {otp31To39Rate.toFixed(1)}%</span>
+            </div>
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-100/80 dark:bg-white/5 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-white/10">
+                <tr><th className="p-3">Code</th><th className="p-3">Description</th><th className="p-3 text-right">Affected Flights</th><th className="p-3 text-right">Total Delay</th><th className="p-3 text-right">Impact</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                {delayOtpReport.map((item) => (
+                  <tr key={item.code} className="hover:bg-slate-100/60 dark:hover:bg-white/5">
+                    <td className="p-3 font-mono font-bold text-amber-700 dark:text-amber-400">{item.code}</td>
+                    <td className="p-3 text-slate-700 dark:text-slate-300">{item.description}</td>
+                    <td className="p-3 text-right font-mono">{item.flights}</td>
+                    <td className="p-3 text-right font-mono">{item.totalMinutes} min</td>
+                    <td className="p-3 text-right font-mono text-amber-700 dark:text-amber-300">{item.otpImpact.toFixed(1)}%</td>
                   </tr>
                 ))}
               </tbody>

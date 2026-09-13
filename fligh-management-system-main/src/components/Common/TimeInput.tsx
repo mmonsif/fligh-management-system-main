@@ -97,7 +97,7 @@ export const UtcDateTimeInput: React.FC<UtcDateTimeInputProps> = ({
   };
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-2">
+    <div className="grid min-w-[16rem] grid-cols-[minmax(9rem,1fr)_6rem] gap-2">
       <input
         type="date"
         value={date}
