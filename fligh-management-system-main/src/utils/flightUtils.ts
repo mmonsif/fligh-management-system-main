@@ -84,6 +84,70 @@ export function getPassengerTotal(
   return (adult ?? 0) + (child ?? 0) + (infant ?? 0);
 }
 
+const minutesBetween = (start: string | null | undefined, end: string | null | undefined): number | null => {
+  if (!start || !end) return null;
+  const s = new Date(start).getTime();
+  const e = new Date(end).getTime();
+  if (isNaN(s) || isNaN(e)) return null;
+  return Math.round((e - s) / 60000);
+};
+
+/**
+ * Scheduled ground handling (turnaround) time in minutes, i.e. STD - STA.
+ * Returns null when either timestamp is missing/invalid.
+ */
+export function getScheduledGroundTimeMinutes(flight: Pick<Flight, 'staUtc' | 'stdUtc'>): number | null {
+  return minutesBetween(flight.staUtc, flight.stdUtc);
+}
+
+/**
+ * Actual ground handling (turnaround) time in minutes, i.e. ATD - ATA.
+ * Returns null until both actuals are recorded.
+ */
+export function getActualGroundTimeMinutes(
+  flight: Pick<Flight, 'ataUtc' | 'atdUtc'>
+): number | null {
+  return minutesBetween(flight.ataUtc, flight.atdUtc);
+}
+
+/**
+ * Ground-handling variance in minutes: actual turnaround minus scheduled turnaround.
+ * A positive value means the flight stayed on the ground longer than its allocated
+ * schedule and is therefore considered operationally delayed. Returns null when the
+ * flight is not completed (no ATA/ATD) or the schedule is invalid.
+ *
+ * Example: STA 10:00 & STD 10:50 (50 min scheduled). If ATA 10:05 & ATD 11:00
+ * (55 min actual) the variance is +5 min -> delayed by 5 minutes.
+ */
+export function getGroundHandlingVarianceMinutes(
+  flight: Pick<Flight, 'staUtc' | 'stdUtc' | 'ataUtc' | 'atdUtc'>
+): number | null {
+  const scheduled = getScheduledGroundTimeMinutes(flight);
+  const actual = getActualGroundTimeMinutes(flight);
+  if (scheduled === null || actual === null) return null;
+  return actual - scheduled;
+}
+
+/**
+ * Whether a flight exceeded its scheduled ground handling time.
+ * Only completed movements (with both ATA and ATD) can be evaluated; all others
+ * return false so they are not counted as delay-caused but are still excluded
+ * from the on-time numerator by their status.
+ */
+export function isGroundHandlingDelayed(
+  flight: Pick<Flight, 'staUtc' | 'stdUtc' | 'ataUtc' | 'atdUtc'>
+): boolean {
+  const variance = getGroundHandlingVarianceMinutes(flight);
+  return variance !== null && variance > 0;
+}
+
+/**
+ * Minimum scheduled ground handling time (in minutes) required before a flight is
+ * even evaluated for turnaround punctuality. Guards against degenerate schedules
+ * where STD == STA. Defaults to 1 minute.
+ */
+export const MIN_EVALUABLE_GROUND_TIME_MINUTES = 1;
+
 export function formatUtcTimeOnly(dateInput: string | Date | null | undefined): string {
   if (!dateInput) return '--:--';
   const d = new Date(dateInput);

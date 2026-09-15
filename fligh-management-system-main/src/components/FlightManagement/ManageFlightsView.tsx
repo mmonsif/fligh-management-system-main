@@ -37,6 +37,8 @@ import {
   ArrowRight,
   Navigation,
   Repeat,
+  ArrowUpDown,
+  AlertCircle,
 } from 'lucide-react';
 
 const getFilterParts = (value: Date) => {
@@ -52,6 +54,53 @@ const toFilterUtc = (date: string, time: string) => {
   const minutes = Number(minutesText);
   if (!date || !Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
   return parseDateTimeLocalAsUtc(`${date}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`);
+};
+
+/**
+ * Ground-handling warning: returns a descriptor when an arrived-but-not-departed
+ * flight is within 10 minutes of exceeding its scheduled turnaround
+ * (scheduled ground time = STD - STA), or has already exceeded it.
+ *
+ * The clock starts at actual arrival (ATA). The flight is warned once
+ * `now >= ATA + (scheduledGround - 10 minutes)`.
+ */
+export type GroundHandlingWarning = {
+  level: 'warning' | 'exceeded';
+  scheduledGroundMinutes: number;
+  elapsedMinutes: number;
+  remainingMinutes: number;
+};
+
+const nowMs = () => Date.now();
+
+export const getGroundHandlingWarning = (
+  flight: Pick<Flight, 'staUtc' | 'stdUtc' | 'ataUtc' | 'atdUtc' | 'flightStatus'>,
+  at: number = nowMs()
+): GroundHandlingWarning | null => {
+  // Only flights that have arrived but not yet departed are eligible
+  if (!flight.ataUtc || flight.atdUtc) return null;
+  if (flight.flightStatus === 'Canceled' || flight.flightStatus === 'Completed') return null;
+
+  const sta = new Date(flight.staUtc).getTime();
+  const std = new Date(flight.stdUtc).getTime();
+  const ata = new Date(flight.ataUtc).getTime();
+  if (isNaN(sta) || isNaN(std) || isNaN(ata)) return null;
+
+  const scheduledGroundMinutes = Math.round((std - sta) / 60000);
+  if (scheduledGroundMinutes <= 0) return null;
+
+  const elapsedMinutes = Math.round((at - ata) / 60000);
+  const warnThreshold = scheduledGroundMinutes - 10;
+
+  if (elapsedMinutes < warnThreshold) return null;
+
+  const remainingMinutes = scheduledGroundMinutes - elapsedMinutes;
+  return {
+    level: remainingMinutes > 0 ? 'warning' : 'exceeded',
+    scheduledGroundMinutes,
+    elapsedMinutes,
+    remainingMinutes,
+  };
 };
 
 interface ManageFlightsViewProps {
@@ -86,19 +135,18 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
   const [activeBottomTab, setActiveBottomTab] = useState<'schedule' | 'actuals' | 'delays'>('schedule');
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 
-  // Filter state
-  const defaultFrom = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 16);
-  const defaultTo = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 16);
-  const defaultFromParts = getFilterParts(new Date(defaultFrom));
-  const defaultToParts = getFilterParts(new Date(defaultTo));
-  const [filterFromDate, setFilterFromDate] = useState(defaultFromParts.date);
-  const [filterFromTime, setFilterFromTime] = useState(defaultFromParts.time);
-  const [filterToDate, setFilterToDate] = useState(defaultToParts.date);
-  const [filterToTime, setFilterToTime] = useState(defaultToParts.time);
-  const [isFilterActive, setIsFilterActive] = useState<boolean>(false);
+  // Filter state — defaults to the current UTC day so the list opens on today.
+  const todayParts = getFilterParts(new Date());
+  const [filterFromDate, setFilterFromDate] = useState(todayParts.date);
+  const [filterFromTime, setFilterFromTime] = useState('00:00');
+  const [filterToDate, setFilterToDate] = useState(todayParts.date);
+  const [filterToTime, setFilterToTime] = useState('23:59');
+  const [isFilterActive, setIsFilterActive] = useState<boolean>(true);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  // Sort — clickable STA / STD column headers replace the old dropdown
+  const [sortKey, setSortKey] = useState<'staUtc' | 'stdUtc'>('staUtc');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   // Modals
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
@@ -152,9 +200,92 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'warning' | 'info' | 'error' } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; confirmText?: string; onConfirm: () => void } | null>(null);
 
+  // Ticking clock so ground-handling warnings update live (every 30s)
+  const [warningClock, setWarningClock] = useState<number>(() => Date.now());
+  React.useEffect(() => {
+    const timer = setInterval(() => setWarningClock(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
   const showToast = (message: string, type: 'success' | 'warning' | 'info' | 'error' = 'info') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 4000);
+  };
+
+  /**
+   * Returns the labels of any provided date/time fields whose value is earlier than
+   * the current UTC time. Empty/invalid values are ignored.
+   */
+  const collectPastDateTimeLabels = (
+    fields: { label: string; value: string }[]
+  ): string[] => {
+    const now = Date.now();
+    return fields
+      .filter((f) => f.value && f.value.trim() !== '')
+      .filter((f) => {
+        const iso = parseDateTimeLocalAsUtc(f.value);
+        if (!iso) return false;
+        const t = new Date(iso).getTime();
+        return !isNaN(t) && t < now;
+      })
+      .map((f) => f.label);
+  };
+
+  /**
+   * Runs `proceed` immediately if there are no past-date warnings, otherwise opens a
+   * reconfirmation dialog listing the offending fields before proceeding.
+   */
+  const confirmIfPastDateTimes = (
+    fields: { label: string; value: string }[],
+    actionLabel: string,
+    proceed: () => void
+  ) => {
+    const pastLabels = collectPastDateTimeLabels(fields);
+    if (pastLabels.length === 0) {
+      proceed();
+      return;
+    }
+    setConfirmDialog({
+      title: 'Confirm past date/time',
+      message: `The following ${pastLabels.length > 1 ? 'fields are' : 'field is'} set to a time earlier than now (UTC): ${pastLabels.join(', ')}. Do you want to proceed and ${actionLabel}?`,
+      confirmText: 'Proceed anyway',
+      onConfirm: () => {
+        setConfirmDialog(null);
+        proceed();
+      },
+    });
+  };
+
+  /**
+   * Returns the delay code slots (1-3) that have a code but no positive minutes.
+   */
+  const collectDelayCodesMissingMinutes = (): { index: number; code: string }[] => {
+    const slots: { index: number; code: string; minutes: string }[] = [
+      { index: 1, code: delayCode1, minutes: delayMinutes1 },
+      { index: 2, code: delayCode2, minutes: delayMinutes2 },
+      { index: 3, code: delayCode3, minutes: delayMinutes3 },
+    ];
+    return slots
+      .filter((s) => s.code.trim() !== '' && parseHHMMToMinutes(s.minutes) <= 0)
+      .map((s) => ({ index: s.index, code: s.code.trim().toUpperCase() }));
+  };
+
+  const confirmIfDelayCodesMissingMinutes = (proceed: () => void) => {
+    const missing = collectDelayCodesMissingMinutes();
+    if (missing.length === 0) {
+      proceed();
+      return;
+    }
+    const labels = missing.map((m) => `code ${m.code} (slot ${m.index})`).join(', ');
+    setConfirmDialog({
+      title: 'Delay code without duration',
+      message: `The following delay ${missing.length > 1 ? 'codes have' : 'code has'} no time in minutes: ${labels}. Do you want to proceed and save the delays?`,
+      confirmText: 'Proceed anyway',
+      onConfirm: () => {
+        setConfirmDialog(null);
+        proceed();
+      },
+    });
   };
 
   const selectedFlight = useMemo(
@@ -379,11 +510,35 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
 
   const sortedFlights = useMemo(
     () => [...filteredFlights].sort((a, b) => {
-      const difference = new Date(a.staUtc).getTime() - new Date(b.staUtc).getTime();
-      return sortOrder === 'newest' ? -difference : difference;
+      const aTime = new Date(a[sortKey]).getTime();
+      const bTime = new Date(b[sortKey]).getTime();
+      const difference = aTime - bTime;
+      return sortDir === 'asc' ? difference : -difference;
     }),
-    [filteredFlights, sortOrder]
+    [filteredFlights, sortKey, sortDir]
   );
+
+  const toggleSort = (key: 'staUtc' | 'stdUtc') => {
+    if (sortKey === key) {
+      setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  // Flights currently about to exceed / already exceeding ground handling time
+  const groundHandlingAlerts = useMemo(() => {
+    let aboutToDelay = 0;
+    let exceeded = 0;
+    sortedFlights.forEach((f) => {
+      const w = getGroundHandlingWarning(f, warningClock);
+      if (!w) return;
+      if (w.level === 'exceeded') exceeded += 1;
+      else aboutToDelay += 1;
+    });
+    return { aboutToDelay, exceeded, total: aboutToDelay + exceeded };
+  }, [sortedFlights, warningClock]);
 
   // Handle Add Flight
   const handleOpenAddFlight = () => {
@@ -401,6 +556,20 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       return;
     }
 
+    // Reconfirm if any schedule/actual date-time is in the past
+    confirmIfPastDateTimes(
+      [
+        { label: 'STA (UTC)', value: staUtc },
+        { label: 'STD (UTC)', value: stdUtc },
+        ...(chkATA ? [{ label: 'ATA (UTC)', value: ataUtc }] : []),
+        ...(chkATD ? [{ label: 'ATD (UTC)', value: atdUtc }] : []),
+      ],
+      'add this flight',
+      () => performAddFlight()
+    );
+  };
+
+  const performAddFlight = () => {
     const airline = airlines.find((a) => a.airlineId === selectedAirlineId);
     const agency = agencies.find((a) => a.agencyId === selectedAgencyId);
 
@@ -458,6 +627,19 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       return;
     }
 
+    // Reconfirm if STA/STD is set in the past
+    confirmIfPastDateTimes(
+      [
+        { label: 'STA (UTC)', value: staUtc },
+        { label: 'STD (UTC)', value: stdUtc },
+      ],
+      'save the schedule',
+      () => performUpdateSchedule()
+    );
+  };
+
+  const performUpdateSchedule = () => {
+    if (!selectedFlightId) return;
     const airline = airlines.find((a) => a.airlineId === selectedAirlineId);
     const agency = agencies.find((a) => a.agencyId === selectedAgencyId);
 
@@ -492,6 +674,19 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       return;
     }
 
+    // Reconfirm if ATA/ATD is set in the past
+    confirmIfPastDateTimes(
+      [
+        ...(chkATA ? [{ label: 'ATA (UTC)', value: ataUtc }] : []),
+        ...(chkATD ? [{ label: 'ATD (UTC)', value: atdUtc }] : []),
+      ],
+      'save the actuals',
+      () => performUpdateActuals()
+    );
+  };
+
+  const performUpdateActuals = () => {
+    if (!selectedFlightId) return;
     onUpdateActuals(selectedFlightId, {
       ataUtc: chkATA ? parseDateTimeLocalAsUtc(ataUtc) : null,
       atdUtc: chkATD ? parseDateTimeLocalAsUtc(atdUtc) : null,
@@ -522,6 +717,12 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       return;
     }
 
+    // Reconfirm if any delay code was entered without a duration in minutes
+    confirmIfDelayCodesMissingMinutes(() => performUpdateDelays());
+  };
+
+  const performUpdateDelays = () => {
+    if (!selectedFlightId) return;
     const newDelays: Flight['delays'] = [];
     if (delayCode1.trim()) {
       newDelays.push({
@@ -616,7 +817,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       )}
 
       {confirmDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-[0_18px_52px_rgba(15,23,42,0.35)] overflow-hidden">
             <div className="flex items-center justify-between bg-gradient-to-r from-slate-800 to-slate-700 px-4 py-3 text-white">
               <span className="text-sm font-bold tracking-wide">{confirmDialog.title}</span>
@@ -857,17 +1058,31 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
               className="glass-btn-primary px-3.5 py-1 rounded-xl font-semibold flex items-center gap-1 cursor-pointer"
             >
               <Filter className="w-3 h-3" />
-              Apply Filter
+              Apply Range
+            </button>
+            <button
+              onClick={() => {
+                const parts = getFilterParts(new Date());
+                setFilterFromDate(parts.date);
+                setFilterFromTime('00:00');
+                setFilterToDate(parts.date);
+                setFilterToTime('23:59');
+                setIsFilterActive(true);
+                showToast('Showing today’s flights (UTC).', 'info');
+              }}
+              className="px-2.5 py-1 rounded-xl border-sky-300 dark:border-sky-500/30 hover:bg-sky-50 dark:hover:bg-sky-500/10 text-sky-700 dark:text-sky-300 transition-colors cursor-pointer"
+            >
+              Today
             </button>
             {isFilterActive && (
               <button
                 onClick={() => {
                   setIsFilterActive(false);
-                  showToast('Filter cleared. Showing all flights.', 'info');
+                  showToast('Date filter removed. Showing all flights.', 'info');
                 }}
                 className="px-2.5 py-1 rounded-xl border border-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
               >
-                Clear Filter
+                Show All
               </button>
             )}
           </div>
@@ -897,13 +1112,9 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
               <span>Showing all {filteredFlights.length} flights</span>
             )}
           </div>
-          <label className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
-            <span>Sort by STA</span>
-            <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as 'newest' | 'oldest')} className="glass-input px-2 py-1 rounded-xl text-[11px] text-slate-900 dark:text-slate-100">
-              <option value="newest">Recent first</option>
-              <option value="oldest">Oldest first</option>
-            </select>
-          </label>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            Sort: click the <span className="font-semibold text-slate-700 dark:text-slate-200">STA</span> or <span className="font-semibold text-slate-700 dark:text-slate-200">STD</span> column header
+          </span>
 
           {/* Status Quick Pills */}
           <div className="flex items-center gap-1.5 overflow-x-auto">
@@ -939,6 +1150,37 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
         </div>
       </div>
 
+      {/* Ground Handling Alert Banner */}
+      {groundHandlingAlerts.total > 0 && (
+        <div
+          className={`glass-card rounded-2xl border px-4 py-3 flex-wrap items-center gap-3 text-xs ${
+            groundHandlingAlerts.exceeded > 0
+              ? 'border-rose-300 dark:border-rose-500/40 bg-rose-50/80 dark:bg-rose-500/10'
+              : 'border-amber-300 dark:border-amber-500/40 bg-amber-50/80 dark:bg-amber-500/10'
+          }`}
+        >
+          <span className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-100">
+            <AlertTriangle
+              className={`w-4 h-4 animate-pulse ${groundHandlingAlerts.exceeded > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`}
+            />
+            Ground Handling Alert
+          </span>
+          {groundHandlingAlerts.exceeded > 0 && (
+            <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-rose-600 text-white animate-pulse">
+              {groundHandlingAlerts.exceeded} flight{groundHandlingAlerts.exceeded === 1 ? '' : 's'} exceeded scheduled ground time
+            </span>
+          )}
+          {groundHandlingAlerts.aboutToDelay > 0 && (
+            <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-amber-500 text-white animate-pulse">
+              {groundHandlingAlerts.aboutToDelay} flight{groundHandlingAlerts.aboutToDelay === 1 ? '' : 's'} about to delay (&lt;10 min left)
+            </span>
+          )}
+          <span className="text-slate-600 dark:text-slate-300">
+            Warning fires when an arrived flight reaches 10 minutes before its scheduled ground handling time (STD − STA).
+          </span>
+        </div>
+      )}
+
       {/* Flights Data Table (Frosted Glass Data View) */}
       <div className="glass-card rounded-2xl shadow-sm dark:shadow-2xl overflow-hidden border border-slate-200 dark:border-white/10">
         <div className="overflow-x-auto min-h-[360px] max-h-[540px] 2xl:max-h-[660px]">
@@ -952,8 +1194,26 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                 <th className="px-3.5 py-3 whitespace-nowrap">Route</th>
                 <th className="px-3.5 py-3 whitespace-nowrap">A/C</th>
                 <th className="px-3.5 py-3 whitespace-nowrap">Tail</th>
-                <th className="px-3.5 py-3 whitespace-nowrap">STA (UTC)</th>
-                <th className="px-3.5 py-3 whitespace-nowrap">STD (UTC)</th>
+                <th
+                  onClick={() => toggleSort('staUtc')}
+                  className="px-3.5 py-3 whitespace-nowrap cursor-pointer select-none hover:text-sky-700 dark:hover:text-sky-300"
+                  title="Sort by scheduled arrival"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    STA (UTC)
+                    {sortKey === 'staUtc' && <ArrowUpDown className="w-3 h-3" />}
+                  </span>
+                </th>
+                <th
+                  onClick={() => toggleSort('stdUtc')}
+                  className="px-3.5 py-3 whitespace-nowrap cursor-pointer select-none hover:text-sky-700 dark:hover:text-sky-300"
+                  title="Sort by scheduled departure"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    STD (UTC)
+                    {sortKey === 'stdUtc' && <ArrowUpDown className="w-3 h-3" />}
+                  </span>
+                </th>
                 <th className="px-3.5 py-3 whitespace-nowrap">ATA (UTC)</th>
                 <th className="px-3.5 py-3 whitespace-nowrap">ATD (UTC)</th>
                 <th className="px-3.5 py-3 whitespace-nowrap text-center">Status</th>
@@ -995,10 +1255,27 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                     rowColorClass = 'bg-emerald-50/60 dark:bg-emerald-500/10 hover:bg-emerald-100/60 dark:hover:bg-emerald-500/15 text-slate-800 dark:text-emerald-200';
                   }
 
+                  // Ground-handling warning overrides the row tint for arrived-not-departed flights
+                  const ghWarning = getGroundHandlingWarning(flight, warningClock);
+                  if (ghWarning && !isCanceled) {
+                    rowColorClass =
+                      ghWarning.level === 'exceeded'
+                        ? 'bg-rose-100/70 dark:bg-rose-500/15 hover:bg-rose-200/70 dark:hover:bg-rose-500/25 text-slate-800 dark:text-rose-200'
+                        : 'bg-amber-100/70 dark:bg-amber-500/15 hover:bg-amber-200/70 dark:hover:bg-amber-500/25 text-slate-800 dark:text-amber-200';
+                  }
+
                   const delayString =
                     flight.delays.length > 0
                       ? flight.delays.map((d) => `${d.code}:${formatMinutesToHHMM(d.minutes)}`).join('; ')
                       : 'None';
+
+                  // Warn when an arrived-but-not-departed flight is within 10 min of
+                  // exceeding its scheduled ground handling time (or already has).
+                  const ghWarningTitle = ghWarning
+                    ? ghWarning.level === 'exceeded'
+                      ? `Ground handling exceeded: ${ghWarning.elapsedMinutes} min elapsed vs ${ghWarning.scheduledGroundMinutes} min scheduled (${Math.abs(ghWarning.remainingMinutes)} min over)`
+                      : `About to delay: only ${ghWarning.remainingMinutes} min left of the ${ghWarning.scheduledGroundMinutes} min scheduled ground time`
+                    : undefined;
 
                   return (
                     <tr
@@ -1054,11 +1331,28 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                         {flight.atdUtc ? formatUtcDateTime(flight.atdUtc) : 'N/A'}
                       </td>
                       <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
-                        <span
-                          className={`inline-block px-2.5 py-0.5 text-[11px] rounded-lg font-medium border ${badge.bgClass} ${badge.textClass} ${badge.borderClass}`}
-                        >
-                          {badge.label}
-                        </span>
+                        <div className="inline-flex items-center gap-1.5">
+                          <span
+                            className={`inline-block px-2.5 py-0.5 text-[11px] rounded-lg font-medium border ${badge.bgClass} ${badge.textClass} ${badge.borderClass}`}
+                          >
+                            {badge.label}
+                          </span>
+                          {ghWarning && (
+                            <span
+                              title={ghWarningTitle}
+                              className={
+                                ghWarning.level === 'exceeded'
+                                  ? 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-600 text-white border-rose-400 animate-pulse shadow-[0_0_10px_rgba(244,63,94,0.5)]'
+                                  : 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500 text-white border-amber-400 animate-pulse shadow-[0_0_10px_rgba(245,158,11,0.5)]'
+                              }
+                            >
+                              <AlertTriangle className="w-3 h-3" />
+                              {ghWarning.level === 'exceeded'
+                                ? `GH exceeded +${Math.abs(ghWarning.remainingMinutes)}m`
+                                : `Delay in ${ghWarning.remainingMinutes}m`}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3.5 py-2.5 font-mono text-[11px] text-amber-700 dark:text-amber-300 font-semibold whitespace-nowrap max-w-[200px] truncate">
                         {delayString}

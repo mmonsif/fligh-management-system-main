@@ -34,6 +34,7 @@ import {
 
 interface FlightTrendsDashboardProps {
   flights: Flight[];
+  dateFrom: string;
   dateTo: string;
   onSelectDateFilter?: (date: string) => void;
 }
@@ -71,26 +72,27 @@ export interface DailyTrendPoint {
 
 export const FlightTrendsDashboard: React.FC<FlightTrendsDashboardProps> = ({
   flights,
+  dateFrom,
   dateTo,
   onSelectDateFilter,
 }) => {
   // Chart visual mode
   const [chartViewMode, setChartViewMode] = useState<'dual' | 'volume' | 'otp' | 'delays'>('dual');
-  // Preset range (7, 14, 30 days)
-  const [windowDays, setWindowDays] = useState<number>(30);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
 
-  // Compute the continuous 30-day time series backwards from dateTo
+  // Compute the continuous daily time series across the selected From-To range
   const dailyData = useMemo(() => {
     const points: DailyTrendPoint[] = [];
-    const baseDate = new Date(dateTo + 'T12:00:00Z');
-    if (isNaN(baseDate.getTime())) {
+    const startDate = new Date(dateFrom + 'T00:00:00Z');
+    const endDate = new Date(dateTo + 'T00:00:00Z');
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime()) || startDate.getTime() > endDate.getTime()) {
       return points;
     }
 
-    // Build array for windowDays (default 30)
-    for (let i = windowDays - 1; i >= 0; i--) {
-      const d = new Date(baseDate.getTime() - i * 86400000);
+    // Build one point per day in the inclusive range
+    const totalDays = Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
+    for (let i = 0; i < totalDays; i++) {
+      const d = new Date(startDate.getTime() + i * 86400000);
       const dateKey = d.toISOString().slice(0, 10);
       const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -106,14 +108,25 @@ export const FlightTrendsDashboard: React.FC<FlightTrendsDashboardProps> = ({
       const totalFlights = dayFlights.length;
       const completedFlights = dayFlights.filter((f) => f.flightStatus === 'Completed').length;
       const canceledFlights = dayFlights.filter((f) => f.flightStatus === 'Canceled').length;
-      const delayedFlights = dayFlights.filter((f) => f.flightStatus !== 'Canceled' && f.delayMinutesTotal > 0).length;
-      const onTimeFlights = dayFlights.filter((f) => f.flightStatus === 'Completed' && f.delayMinutesTotal === 0).length;
+
+      // OTP by delay code: a completed flight is delayed when it carries any delay
+      // code other than 93. A code 93 shared with any other code still counts as
+      // delayed; only a flight with code 93 alone (or no codes) is on-time.
+      const evaluatedFlights = dayFlights.filter((f) => f.flightStatus === 'Completed');
+      const delayedFlights = evaluatedFlights.filter((f) =>
+        f.delays.some((d) => d.code && d.code.trim() !== '93')
+      ).length;
+      const onTimeFlights = evaluatedFlights.length - delayedFlights;
 
       const activeFlights = totalFlights - canceledFlights;
-      const onTimeRate = completedFlights > 0 ? Number(((onTimeFlights / completedFlights) * 100).toFixed(1)) : 0;
+      const onTimeRate = evaluatedFlights.length > 0 ? Number(((onTimeFlights / evaluatedFlights.length) * 100).toFixed(1)) : 0;
       const delayRate = activeFlights > 0 ? Number(((delayedFlights / activeFlights) * 100).toFixed(1)) : 0;
 
-      const totalDelayMinutes = dayFlights.reduce((acc, f) => acc + (f.delayMinutesTotal || 0), 0);
+      // Delay minutes are the recorded delay-minutes of delayed flights
+      const totalDelayMinutes = evaluatedFlights.reduce(
+        (acc, f) => acc + (delayedFlights > 0 && f.delays.some((d) => d.code && d.code.trim() !== '93') ? (f.delayMinutesTotal || 0) : 0),
+        0
+      );
       const avgDelayMinutes = delayedFlights > 0 ? Number((totalDelayMinutes / delayedFlights).toFixed(1)) : 0;
 
       const totalPax = dayFlights.reduce((acc, f) => acc + (f.totalPax || 0), 0);
@@ -138,9 +151,9 @@ export const FlightTrendsDashboard: React.FC<FlightTrendsDashboardProps> = ({
     }
 
     return points;
-  }, [flights, dateTo, windowDays]);
+  }, [flights, dateFrom, dateTo]);
 
-  // Aggregate metrics for this 30-day window
+  // Aggregate metrics for the selected window
   const windowSummary = useMemo<WindowSummary>(() => {
     const totalFlights = dailyData.reduce((acc, d) => acc + d.totalFlights, 0);
     const totalCompleted = dailyData.reduce((acc, d) => acc + d.completedFlights, 0);
@@ -230,6 +243,10 @@ export const FlightTrendsDashboard: React.FC<FlightTrendsDashboardProps> = ({
               </span>
             </div>
 
+            <div className="text-[9px] text-slate-400 -mt-0.5">
+              On-time unless a delay code other than 93 is present; 93 alone is excluded.
+            </div>
+
             {data.avgDelayMinutes > 0 && (
               <div className="flex items-center justify-between text-slate-500 text-[10px]">
                 <span>Avg Delay / Delayed Flight:</span>
@@ -263,46 +280,19 @@ export const FlightTrendsDashboard: React.FC<FlightTrendsDashboardProps> = ({
               <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
                 Operational Flight Volume &amp; On-Time Performance Trends
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-300">
-                  Last {windowDays} Days
+                  {dateFrom} → {dateTo}
                 </span>
               </h3>
               <p className="text-xs text-slate-500">
                 Continuous daily movement density, punctuality threshold tracking (85% benchmark), and delay metrics
+                · OTP excludes delay code 93 unless it is shared with another code
               </p>
             </div>
           </div>
         </div>
 
-        {/* View Mode & Preset Filters */}
+        {/* Chart view selector (date range comes from the page-level From-To filter) */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Range pills */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
-            <button
-              onClick={() => setWindowDays(7)}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
-                windowDays === 7 ? 'bg-white text-sky-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              7 Days
-            </button>
-            <button
-              onClick={() => setWindowDays(14)}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
-                windowDays === 14 ? 'bg-white text-sky-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              14 Days
-            </button>
-            <button
-              onClick={() => setWindowDays(30)}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
-                windowDays === 30 ? 'bg-white text-sky-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              30 Days
-            </button>
-          </div>
-
           {/* Chart view selector */}
           <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
             <button
@@ -624,11 +614,11 @@ export const FlightTrendsDashboard: React.FC<FlightTrendsDashboardProps> = ({
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" />
-              <span>On-Time Turnaround (0m delay)</span>
+              <span>On-Time (no delay code other than 93)</span>
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block" />
-              <span>Delayed Flight (&gt;0m delay)</span>
+              <span>Delayed (delay code other than 93)</span>
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block" />
