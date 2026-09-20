@@ -1,6 +1,18 @@
 import { Agency, Airline, AuthUser, Flight, FlightTemplate, TemplateSchedule } from '../types';
 import { isSupabaseConfigured, supabase } from './supabase';
 
+/**
+ * Normalise a flight for comparison so that values Supabase returns slightly
+ * differently (e.g. 'undefined' vs 'null', ISO offsets) do not look like a change.
+ */
+const normaliseFlightForCompare = (flight: Flight) => JSON.stringify({
+  ...flight,
+  via: flight.via ?? null,
+  ataUtc: flight.ataUtc ?? null,
+  atdUtc: flight.atdUtc ?? null,
+  cancellationReason: flight.cancellationReason ?? null,
+});
+
 export interface DatabaseSnapshot {
   flights: Flight[];
   airlines: Airline[];
@@ -211,41 +223,59 @@ export const authenticateUser = async (username: string, password: string): Prom
 export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot, previousSnapshot?: DatabaseSnapshot) => {
   if (!isSupabaseConfigured || !supabase) return;
 
-  const changedRows = <T extends object>(currentRows: T[], previousRows: T[] | undefined, key: keyof T) => {
-    const previousById = new Map(previousRows?.map((row) => [row[key], JSON.stringify(row)]));
-    return currentRows.filter((row) => previousById.get(row[key]) !== JSON.stringify(row));
+  const changedRowsFn = <T extends object>(
+    currentRows: T[],
+    previousRows: T[] | undefined,
+    key: keyof T,
+    serialise: (row: T) => string = (row) => JSON.stringify(row)
+  ) => {
+    const previousById = new Map((previousRows ?? []).map((row) => [row[key], serialise(row)]));
+    return currentRows.filter((row) => previousById.get(row[key]) !== serialise(row));
   };
 
-  const changedFlights = changedRows(snapshot.flights, previousSnapshot?.flights, 'flightId');
-  const changedAirlines = changedRows(snapshot.airlines, previousSnapshot?.airlines, 'airlineId');
-  const changedAgencies = changedRows(snapshot.agencies, previousSnapshot?.agencies, 'agencyId');
-  const changedTemplates = changedRows(snapshot.templates, previousSnapshot?.templates, 'templateId');
+  // Skip empty upserts entirely: they are a no-op and some PostgREST versions error on them.
+  const upsert = (table: string, rows: object[]) =>
+    rows.length > 0
+      ? supabase!.from(table).upsert(rows)
+      : Promise.resolve({ data: null, error: null });
 
-  const existingFlightsResult = await supabase.from('flights').select('flight_id');
-  const existingFlightIds = new Set((existingFlightsResult.data ?? []).map((row) => row.flight_id));
+  const changedFlights = changedRowsFn(snapshot.flights, previousSnapshot?.flights, 'flightId', normaliseFlightForCompare);
+  const changedAirlines = changedRowsFn(snapshot.airlines, previousSnapshot?.airlines, 'airlineId');
+  const changedAgencies = changedRowsFn(snapshot.agencies, previousSnapshot?.agencies, 'agencyId');
+  const changedTemplates = changedRowsFn(snapshot.templates, previousSnapshot?.templates, 'templateId');
+
+  // Only delete rows that were present in the previous baseline but are now gone.
+  // We must NOT delete every DB row absent from the snapshot: a stale/partial
+  // in-memory snapshot would otherwise wipe live rows (this was the data-loss path
+  // when a flight edit was followed by a realtime echo).
+  const previousFlightIds = new Set((previousSnapshot?.flights ?? []).map((flight) => flight.flightId));
   const snapshotFlightIds = new Set(snapshot.flights.map((flight) => flight.flightId));
-  const deletedFlightIds = [...existingFlightIds].filter((flightId) => !snapshotFlightIds.has(flightId));
+  const deletedFlightIds = previousSnapshot
+    ? [...previousFlightIds].filter((flightId) => !snapshotFlightIds.has(flightId))
+    : [];
 
   if (deletedFlightIds.length > 0) {
     const { error: deleteError } = await supabase.from('flights').delete().in('flight_id', deletedFlightIds);
     if (deleteError) throw new Error(`Supabase flight delete sync failed: ${deleteError.message}`);
   }
 
-  const results = await Promise.all([
-    supabase.from('airlines').upsert(changedAirlines.map((airline) => ({
+  // Parents (airlines, agencies, templates) must be written before the rows that
+  // reference them (flights, template_schedules) or foreign keys can reject the write.
+  const parentResults = await Promise.all([
+    upsert('airlines', changedAirlines.map((airline) => ({
       airline_id: airline.airlineId,
       airline_name: airline.airlineName,
       iata_code: airline.iataCode || null,
       country: airline.country || null,
       handling_company: airline.handlingCompany || null,
     }))),
-    supabase.from('agencies').upsert(changedAgencies.map((agency) => ({
+    upsert('agencies', changedAgencies.map((agency) => ({
       agency_id: agency.agencyId,
       agency_name: agency.agencyName,
       contact_email: agency.contactEmail || null,
       phone: agency.phone || null,
     }))),
-    supabase.from('flight_templates').upsert(changedTemplates.map((template) => ({
+    upsert('flight_templates', changedTemplates.map((template) => ({
       template_id: template.templateId,
       template_name: template.templateName,
       inbound_flight_number: template.inboundFlightNumber,
@@ -260,7 +290,14 @@ export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot, previousS
       agency_id: template.agencyId,
       aircraft_type: template.aircraftType,
     }))),
-    supabase.from('flights').upsert(changedFlights.map((flight) => ({
+  ]);
+
+  const failedParent = parentResults.find((result) => result.error);
+  if (failedParent?.error) throw new Error(`Supabase sync failed: ${failedParent.error.message}`);
+
+  const results = await Promise.all([
+    ...parentResults,
+    upsert('flights', changedFlights.map((flight) => ({
       flight_id: flight.flightId,
       inbound_flight_number: flight.inboundFlightNumber,
       outbound_flight_number: flight.outboundFlightNumber,
@@ -299,19 +336,21 @@ export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot, previousS
   const failed = results.find((result) => result.error);
   if (failed?.error) throw new Error(`Supabase sync failed: ${failed.error.message}`);
 
-  const scheduleResult = await supabase.from('template_schedules').upsert(
-    changedTemplates
-      .filter((template) => template.schedule)
-      .map((template) => ({
-        template_id: template.templateId,
-        frequency: template.schedule!.frequency,
-        days_of_week: template.schedule!.daysOfWeek,
-        start_date: template.schedule!.startDate,
-        end_date: template.schedule!.endDate,
-      })),
-    { onConflict: 'template_id' }
-  );
-  if (scheduleResult.error) throw new Error(`Supabase schedule sync failed: ${scheduleResult.error.message}`);
+  const schedulesToUpsert = changedTemplates
+    .filter((template) => template.schedule)
+    .map((template) => ({
+      template_id: template.templateId,
+      frequency: template.schedule!.frequency,
+      days_of_week: template.schedule!.daysOfWeek,
+      start_date: template.schedule!.startDate,
+      end_date: template.schedule!.endDate,
+    }));
+  if (schedulesToUpsert.length > 0) {
+    const { error: scheduleError } = await supabase
+      .from('template_schedules')
+      .upsert(schedulesToUpsert, { onConflict: 'template_id' });
+    if (scheduleError) throw new Error(`Supabase schedule sync failed: ${scheduleError.message}`);
+  }
 };
 
 export const subscribeToDatabaseChanges = (onChange: (change: DatabaseChange) => void) => {

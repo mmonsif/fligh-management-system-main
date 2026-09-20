@@ -22,6 +22,26 @@ import {
   subscribeToDatabaseChanges,
 } from './lib/database';
 
+const mergeFlightIntoSnapshot = (
+  snapshot: DatabaseSnapshot | undefined,
+  record: Flight,
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE'
+): DatabaseSnapshot | undefined => {
+  if (!snapshot) return snapshot;
+  const flights = eventType === 'DELETE'
+    ? snapshot.flights.filter((flight) => flight.flightId !== record.flightId)
+    : snapshot.flights.some((flight) => flight.flightId === record.flightId)
+      ? snapshot.flights.map((flight) => flight.flightId === record.flightId ? record : flight)
+      : [...snapshot.flights, record];
+  return { ...snapshot, flights };
+};
+
+const snapshotsEqual = (a: DatabaseSnapshot, b: DatabaseSnapshot): boolean =>
+  a.flights === b.flights &&
+  a.airlines === b.airlines &&
+  a.agencies === b.agencies &&
+  a.templates === b.templates;
+
 const roleTabs: Record<UserRole, ActiveTab[]> = {
   staff: ['manage-flights'],
   manager: ['manage-flights', 'statistics'],
@@ -40,8 +60,13 @@ export default function App() {
     }
   });
   const [databaseLoaded, setDatabaseLoaded] = useState(!isSupabaseConfigured);
-  const skipNextDatabaseSave = useRef(false);
+  // Baseline of the last state we know is persisted in Supabase. The save effect
+  // diffs the current state against this to compute changed rows, so it MUST stay
+  // in sync with every state change that is (or is not) written to the database.
   const lastPersistedSnapshot = useRef<DatabaseSnapshot | undefined>(undefined);
+  // Serialises saves so overlapping effects cannot compute deletions/upserts from
+  // inconsistent states and cannot clobber each other with stale data.
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
 
   const allowedTabs = user ? roleTabs[user.role] : [];
 
@@ -94,14 +119,23 @@ export default function App() {
     if (!isSupabaseConfigured) return undefined;
 
     return subscribeToDatabaseChanges((change) => {
-      skipNextDatabaseSave.current = true;
-
       if (change.table === 'flights') {
         setFlights((current) => change.eventType === 'DELETE'
           ? current.filter((flight) => flight.flightId !== change.id)
           : current.some((flight) => flight.flightId === change.id)
             ? current.map((flight) => flight.flightId === change.id ? change.record! : flight)
             : [change.record!, ...current]);
+        // Keep the persistence baseline aligned with what the server actually holds
+        // so realtime echoes of our own writes never desynchronise the diff baseline.
+        const record = change.record;
+        if (record) {
+          lastPersistedSnapshot.current = mergeFlightIntoSnapshot(lastPersistedSnapshot.current, record, change.eventType);
+        } else if (change.eventType === 'DELETE' && lastPersistedSnapshot.current) {
+          lastPersistedSnapshot.current = {
+            ...lastPersistedSnapshot.current,
+            flights: lastPersistedSnapshot.current.flights.filter((flight) => flight.flightId !== change.id),
+          };
+        }
       } else if (change.table === 'airlines') {
         setAirlines((current) => change.eventType === 'DELETE'
           ? current.filter((airline) => airline.airlineId !== change.id)
@@ -243,15 +277,24 @@ export default function App() {
 
   useEffect(() => {
     if (!databaseLoaded) return;
-    if (skipNextDatabaseSave.current) {
-      skipNextDatabaseSave.current = false;
-      return;
-    }
 
     const snapshot = { flights, airlines, agencies, templates };
-    void saveDatabaseSnapshot(snapshot, lastPersistedSnapshot.current)
-      .then(() => {
-        lastPersistedSnapshot.current = snapshot;
+    // Chain every save onto the previous one so writes never overlap. Each task
+    // recomputes the diff from the freshest baseline at the moment it runs.
+    saveQueue.current = saveQueue.current
+      .catch(() => undefined)
+      .then(async () => {
+        const baseline = lastPersistedSnapshot.current;
+        const current = { ...snapshot };
+        // Nothing actually changed relative to the last persisted state -> skip.
+        if (baseline && snapshotsEqual(baseline, current)) return;
+        await saveDatabaseSnapshot(current, baseline);
+        // Advance the baseline to exactly what we just wrote. Only overwrite when the
+        // queued task is still the latest one (guards against out-of-order updates).
+        if (current.flights === snapshot.flights && current.airlines === snapshot.airlines
+          && current.templates === snapshot.templates) {
+          lastPersistedSnapshot.current = current;
+        }
       })
       .catch((error) => console.error('Supabase sync failed:', error));
   }, [databaseLoaded, flights, airlines, agencies, templates]);
