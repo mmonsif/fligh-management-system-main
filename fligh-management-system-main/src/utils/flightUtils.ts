@@ -333,82 +333,95 @@ export function parseRouteString(input: string): {
   return {};
 }
 
-export function exportFlightsToCsv(flights: Flight[], filename = 'Flight_List.csv'): void {
-  const headers = [
-    'Flight ID',
-    'Inbound Flight',
-    'Outbound Flight',
-    'Airline',
-    'Agency',
-    'Full Route',
-    'Routing Type',
-    'Origin',
-    'Destination',
-    'Via / Stop',
-    'Final Destination',
-    'Aircraft Type',
-    'Registration',
-    'STA (UTC)',
-    'STD (UTC)',
-    'ATA (UTC)',
-    'ATD (UTC)',
-    'Status',
-    'Total Delay (min)',
-    'Delays',
-    'Adult Pax',
-    'Child Pax',
-    'Infant Pax',
-    'Total Pax',
-    'Bags',
-    'Remarks',
-    'Cancellation Reason'
-  ];
+export type FlightExportColumn = {
+  /** Column header label shown in the first row. */
+  label: string;
+  /** Excel column width in points. */
+  width: number;
+  /** Value for a given flight, already stringified. */
+  value: (flight: Flight) => string;
+  /** Centre the cell (used for numeric / time columns). */
+  align?: 'left' | 'center';
+};
 
-  const rows = flights.map(f => {
-    const delayString = f.delays.length > 0 
-      ? f.delays.map(d => `${d.code}:${formatMinutesToHHMM(d.minutes)}`).join('; ') 
-      : 'None';
-    
-    const fullRoute = formatFlightRoute(f);
-    const routingType = isTriangleFlight(f) ? 'Triangle Route' : (f.destination !== f.finalDestination ? 'Multi-Sector' : 'Direct Turnaround');
-    
-    return [
-      f.flightId,
-      `"${f.inboundFlightNumber}"`,
-      `"${f.outboundFlightNumber}"`,
-      `"${f.airlineName}"`,
-      `"${f.agencyName}"`,
-      `"${fullRoute}"`,
-      `"${routingType}"`,
-      `"${f.origin}"`,
-      `"${f.destination}"`,
-      `"${f.via || ''}"`,
-      `"${f.finalDestination}"`,
-      `"${f.aircraftType}"`,
-      `"${f.registration || ''}"`,
-      `"${formatUtcDateTime(f.staUtc)}"`,
-      `"${formatUtcDateTime(f.stdUtc)}"`,
-      `"${f.ataUtc ? formatUtcDateTime(f.ataUtc) : 'N/A'}"`,
-      `"${f.atdUtc ? formatUtcDateTime(f.atdUtc) : 'N/A'}"`,
-      `"${f.flightStatus}"`,
-      f.delayMinutesTotal || 0,
-      `"${delayString}"`,
-      f.adultPax ?? 0,
-      f.childPax ?? 0,
-      f.infantPax ?? 0,
-      f.totalPax ?? 0,
-      f.numberOfBags ?? 0,
-      `"${(f.remarks || '').replace(/"/g, '""')}"`,
-      `"${(f.cancellationReason || '').replace(/"/g, '""')}"`
-    ];
-  });
+const dateOnlyUtc = (dateInput: string | null | undefined): string => {
+  if (!dateInput) return '';
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return '';
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  return `${day}/${month}/${d.getUTCFullYear()}`;
+};
 
-  const csvContent = [
-    headers.join(','),
-    ...rows.map(r => r.join(','))
-  ].join('\r\n');
+const timeOnlyUtc = (dateInput: string | null | undefined): string => {
+  if (!dateInput) return '';
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return '';
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+};
 
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+const cellText = (value: number | null | undefined): string =>
+  value === null || value === undefined || isNaN(value) ? '' : String(value);
+
+/**
+ * The single source of truth for the exported column layout. Both the Excel and
+ * the PDF exporters read from this so the two never drift apart. Removed columns
+ * (Flight ID, Airline, Agency, Full Route, Routing Type, Status, Cancellation
+ * Reason) and the split date/time + incoming/outgoing passenger split live here.
+ */
+export const FLIGHT_EXPORT_COLUMNS: FlightExportColumn[] = [
+  { label: 'Inbound Flight', width: 90, value: (f) => f.inboundFlightNumber },
+  { label: 'Outbound Flight', width: 90, value: (f) => f.outboundFlightNumber },
+  { label: 'Origin', width: 55, value: (f) => f.origin, align: 'center' },
+  { label: 'Destination', width: 70, value: (f) => f.destination, align: 'center' },
+  { label: 'Via / Stop', width: 60, value: (f) => f.via || '', align: 'center' },
+  { label: 'Final Destination', width: 80, value: (f) => f.finalDestination, align: 'center' },
+  { label: 'Aircraft Type', width: 80, value: (f) => f.aircraftType, align: 'center' },
+  { label: 'Registration', width: 80, value: (f) => f.registration, align: 'center' },
+  { label: 'STA Date', width: 70, value: (f) => dateOnlyUtc(f.staUtc), align: 'center' },
+  { label: 'STA Time', width: 55, value: (f) => timeOnlyUtc(f.staUtc), align: 'center' },
+  { label: 'STD Date', width: 70, value: (f) => dateOnlyUtc(f.stdUtc), align: 'center' },
+  { label: 'STD Time', width: 55, value: (f) => timeOnlyUtc(f.stdUtc), align: 'center' },
+  { label: 'ATA Date', width: 70, value: (f) => dateOnlyUtc(f.ataUtc), align: 'center' },
+  { label: 'ATA Time', width: 55, value: (f) => timeOnlyUtc(f.ataUtc), align: 'center' },
+  { label: 'ATD Date', width: 70, value: (f) => dateOnlyUtc(f.atdUtc), align: 'center' },
+  { label: 'ATD Time', width: 55, value: (f) => timeOnlyUtc(f.atdUtc), align: 'center' },
+  { label: 'Total Delay (min)', width: 75, value: (f) => f.delayMinutesTotal ? String(f.delayMinutesTotal) : '', align: 'center' },
+  {
+    label: 'Delays',
+    width: 130,
+    value: (f) => (f.delays.length > 0
+      ? f.delays.map((d) => `${d.code}:${formatMinutesToHHMM(d.minutes)}`).join('; ')
+      : ''),
+  },
+  { label: 'Outgoing Adult', width: 70, value: (f) => cellText(f.adultPax), align: 'center' },
+  { label: 'Outgoing Child', width: 70, value: (f) => cellText(f.childPax), align: 'center' },
+  { label: 'Outgoing Inf', width: 65, value: (f) => cellText(f.infantPax), align: 'center' },
+  { label: 'Outgoing Total Pax', width: 80, value: (f) => cellText(f.totalPax), align: 'center' },
+  { label: 'Outgoing Bags', width: 75, value: (f) => cellText(f.numberOfBags), align: 'center' },
+  { label: 'Incoming Adult', width: 70, value: (f) => cellText(f.incomingAdultPax ?? null), align: 'center' },
+  { label: 'Incoming Child', width: 70, value: (f) => cellText(f.incomingChildPax ?? null), align: 'center' },
+  { label: 'Incoming Inf', width: 65, value: (f) => cellText(f.incomingInfantPax ?? null), align: 'center' },
+  { label: 'Incoming Total Pax', width: 80, value: (f) => cellText(f.incomingTotalPax ?? null), align: 'center' },
+  { label: 'Incoming Bags', width: 75, value: (f) => cellText(f.incomingNumberOfBags ?? null), align: 'center' },
+  { label: 'Remarks', width: 200, value: (f) => f.remarks || '' },
+];
+
+const escapeXml = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+
+/** Excel worksheet names are limited to 31 chars and forbid : \ / ? * [ ]. */
+const safeSheetName = (name: string): string => {
+  const cleaned = name.replace(/[:\\/?*\[\]]/g, '-').replace(/^'+|'+$/g, '').trim();
+  return (cleaned || 'Flights').slice(0, 31);
+};
+
+const triggerDownload = (blob: Blob, filename: string): void => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
@@ -417,4 +430,264 @@ export function exportFlightsToCsv(flights: Flight[], filename = 'Flight_List.cs
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+};
+
+/**
+ * Builds an Excel XML Spreadsheet 2003 document. This format is opened natively
+ * by Excel (and LibreOffice) and supports real styling — a coloured/bold header
+ * row, frozen header, banded rows, borders, per-column widths and a named
+ * worksheet — none of which a plain CSV can carry.
+ *
+ * @param sheetName Visible worksheet/tab name (e.g. the exported date).
+ * @param title     Big title rendered above the table.
+ * @param subtitle  Secondary line (e.g. the filtered date range).
+ */
+export function buildFlightsExcelXml(
+  flights: Flight[],
+  sheetName: string,
+  title: string,
+  subtitle: string
+): string {
+  const columns = FLIGHT_EXPORT_COLUMNS;
+  const columnCount = columns.length;
+
+  const headerCells = columns
+    .map((c) => `<Cell ss:StyleID="sHeader"><Data ss:Type="String">${escapeXml(c.label)}</Data></Cell>`)
+    .join('');
+
+  const rowCells = (flight: Flight, styleId: string) => columns
+    .map((c) => {
+      const cls = c.align === 'center' ? `${styleId}Center` : styleId;
+      return `<Cell ss:StyleID="${cls}"><Data ss:Type="String">${escapeXml(c.value(flight))}</Data></Cell>`;
+    })
+    .join('');
+
+  const bodyRows = flights
+    .map((f, index) => {
+      const styleId = index % 2 === 0 ? 'sRowA' : 'sRowB';
+      return `<Row ss:Height="16">${rowCells(f, styleId)}</Row>`;
+    })
+    .join('\n');
+
+  const columnDefs = columns
+    .map((c) => `<Column ss:AutoFitWidth="0" ss:Width="${c.width}"/>`)
+    .join('');
+
+  const headerRowIndex = 3; // rows 1-2 are the title/subtitle, row 3 is the header
+  return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:x="urn:schemas-microsoft-com:office:excel"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:html="http://www.w3.org/TR/REC-html40">
+ <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+    <Title>${escapeXml(title)}</Title>
+    <Author>Flight Management System</Author>
+ </DocumentProperties>
+ <Styles>
+    <Style ss:ID="Default" ss:Name="Normal">
+      <Alignment ss:Vertical="Center"/>
+      <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+    </Style>
+    <Style ss:ID="sTitle">
+      <Alignment ss:Vertical="Center"/>
+      <Font ss:FontName="Calibri" ss:Size="16" ss:Bold="1" ss:Color="#0F172A"/>
+    </Style>
+    <Style ss:ID="sSubtitle">
+      <Alignment ss:Vertical="Center"/>
+      <Font ss:FontName="Calibri" ss:Size="10" ss:Italic="1" ss:Color="#475569"/>
+    </Style>
+    <Style ss:ID="sHeader">
+      <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+      <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+      <Interior ss:Color="#0F5C8C" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#0B4668"/>
+        <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#0B4668"/>
+        <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#0B4668"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#0B4668"/>
+      </Borders>
+    </Style>
+    <Style ss:ID="sRowA">
+      <Alignment ss:Vertical="Center"/>
+      <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#DCE3EA"/>
+        <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#DCE3EA"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#DCE3EA"/>
+      </Borders>
+    </Style>
+    <Style ss:ID="sRowACenter">
+      <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+      <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#DCE3EA"/>
+        <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#DCE3EA"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#DCE3EA"/>
+      </Borders>
+    </Style>
+    <Style ss:ID="sRowB">
+      <Alignment ss:Vertical="Center"/>
+      <Interior ss:Color="#EEF4F9" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#DCE3EA"/>
+        <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#DCE3EA"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#DCE3EA"/>
+      </Borders>
+    </Style>
+    <Style ss:ID="sRowBCenter">
+      <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+      <Interior ss:Color="#EEF4F9" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#DCE3EA"/>
+        <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#DCE3EA"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#DCE3EA"/>
+      </Borders>
+    </Style>
+ </Styles>
+ <Worksheet ss:Name="${escapeXml(safeSheetName(sheetName))}">
+    <Table ss:ExpandedColumnCount="${columnCount}" ss:ExpandedRowCount="${flights.length + headerRowIndex}" x:FullColumns="1" x:FullRows="1" ss:DefaultRowHeight="15">
+      ${columnDefs}
+      <Row ss:Height="22"><Cell ss:MergeAcross="${columnCount - 1}" ss:StyleID="sTitle"><Data ss:Type="String">${escapeXml(title)}</Data></Cell></Row>
+      <Row ss:Height="16"><Cell ss:MergeAcross="${columnCount - 1}" ss:StyleID="sSubtitle"><Data ss:Type="String">${escapeXml(subtitle)}</Data></Cell></Row>
+      <Row ss:Height="30">${headerCells}</Row>
+      ${bodyRows}
+    </Table>
+    <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+      <FreezePanes/>
+      <FrozenNoSplit/>
+      <SplitHorizontal>${headerRowIndex}</SplitHorizontal>
+      <TopRowBottomPane>${headerRowIndex}</TopRowBottomPane>
+      <ActivePane>2</ActivePane>
+      <ProtectObjects>False</ProtectObjects>
+      <ProtectScenarios>False</ProtectScenarios>
+      <PageSetup>
+        <Layout x:Orientation="Landscape"/>
+        <Header x:Margin="0.3"/>
+        <Footer x:Margin="0.3"/>
+        <PageMargins x:Bottom="0.4" x:Left="0.3" x:Right="0.3" x:Top="0.4"/>
+      </PageSetup>
+      <Print>
+        <ValidPrinterInfo/>
+        <PaperSizeIndex>9</PaperSizeIndex>
+        <HorizontalResolution>600</HorizontalResolution>
+        <VerticalResolution>600</VerticalResolution>
+      </Print>
+      <Selected/>
+      <Panes>
+        <Pane>
+          <Number>3</Number>
+          <ActiveRow>${headerRowIndex}</ActiveRow>
+          <ActiveCol>0</ActiveCol>
+        </Pane>
+      </Panes>
+    </WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+}
+
+/**
+ * Exports the given flights as a professionally styled Excel workbook.
+ *
+ * @param flights    Rows to export (the currently filtered list).
+ * @param sheetName  Worksheet/tab name — typically the exported date.
+ * @param rangeLabel Human-readable date range shown under the title.
+ */
+export function exportFlightsToExcel(
+  flights: Flight[],
+  sheetName: string,
+  rangeLabel: string
+): void {
+  const title = 'Flight Operations Report';
+  const subtitle = rangeLabel ? `${sheetName}  •  ${rangeLabel}  •  All times UTC` : `${sheetName}  •  All times UTC`;
+  const xml = buildFlightsExcelXml(flights, sheetName, title, subtitle);
+  const blob = new Blob(['\ufeff', xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  triggerDownload(blob, `Flight_Operations_${sheetName.replace(/[^0-9A-Za-z-]/g, '-')}.xls`);
+}
+
+/**
+ * Opens a print-ready, landscape PDF view of the flights and invokes the browser
+ * print dialog (users choose "Save as PDF"). Styling is scoped so only the report
+ * prints, not the surrounding app UI.
+ */
+export function exportFlightsToPdf(
+  flights: Flight[],
+  sheetName: string,
+  rangeLabel: string
+): void {
+  const columns = FLIGHT_EXPORT_COLUMNS;
+  const subtitle = rangeLabel ? `${sheetName}  •  ${rangeLabel}  •  All times UTC` : `${sheetName}  •  All times UTC`;
+
+  const headerHtml = columns.map((c) => `<th>${escapeXml(c.label)}</th>`).join('');
+  const bodyHtml = flights
+    .map((f) => {
+      const cells = columns
+        .map((c) => `<td class="${c.align === 'center' ? 'c' : ''}">${escapeXml(c.value(f))}</td>`)
+        .join('');
+      return `<tr>${cells}</tr>`;
+    })
+    .join('');
+
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    throw new Error('Popup blocked — allow popups to export the PDF.');
+  }
+
+  printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>${escapeXml(sheetName)} — Flight Operations Report</title>
+<style>
+  /* Force the print engine into landscape A4. Chrome honours the @page size for
+     the PDF page box, and the fixed-width table below keeps every column on the
+     page even if the printer/profile still defaults to portrait. */
+  @page { size: A4 landscape; margin: 8mm; }
+  html, body { width: 100%; }
+  * { box-sizing: border-box; }
+  body { font-family: Calibri, Arial, sans-serif; color: #1e293b; margin: 0; padding: 10px 12px; }
+  h1 { font-size: 17px; margin: 0 0 2px; color: #0f172a; }
+  .sub { font-size: 10px; color: #475569; margin-bottom: 10px; }
+  /* table-layout: fixed + 100% width shares the available landscape width across
+     every column, so nothing is pushed off the right edge of the page. */
+  table { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 8px; }
+  thead th {
+    background: #0f5c8c; color: #fff; font-weight: 700; text-align: left;
+    padding: 4px 3px; border: 1px solid #0b4668;
+    white-space: normal; overflow-wrap: anywhere; word-break: break-word; line-height: 1.15;
+  }
+  tbody td {
+    padding: 3px; border: 1px solid #dce3ea; vertical-align: middle;
+    overflow-wrap: anywhere; word-break: break-word;
+  }
+  tbody td.c { text-align: center; }
+  tbody tr:nth-child(even) td { background: #eef4f9; }
+  thead { display: table-header-group; }
+  tr, td, th { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+ <h1>Flight Operations Report</h1>
+ <div class="sub">${escapeXml(subtitle)}</div>
+ <table>
+    <thead><tr>${headerHtml}</tr></thead>
+    <tbody>${bodyHtml}</tbody>
+ </table>
+</body>
+</html>`);
+
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.onload = () => {
+    printWindow.print();
+  };
+  // Fallback for browsers that already fired onload before assignment.
+  setTimeout(() => {
+    try {
+      printWindow.print();
+    } catch {
+      // ignore
+    }
+  }, 300);
 }
