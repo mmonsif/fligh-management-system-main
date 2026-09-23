@@ -8,6 +8,7 @@ import {
 } from '../../utils/flightUtils';
 import { getDelayCodeInfo } from '../../data/iataDelayCodes';
 import { FlightTrendsDashboard } from './FlightTrendsDashboard';
+import { HoverDetail, StatisticsDetailDrawer } from './StatisticsHoverDetail';
 import {
   BarChart3,
   Calendar,
@@ -46,6 +47,13 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
   const [activeReportTab, setActiveReportTab] = useState<
     'summary' | 'details' | 'airlines' | 'agencies' | 'destinations' | 'aircraft' | 'otp' | 'delays'
   >('summary');
+
+  // Exploration drawer: holds the contributing flights behind a hovered card / row.
+  const [detailDrilldown, setDetailDrilldown] = useState<{
+    title: string;
+    subtitle?: string;
+    flights: Flight[];
+  } | null>(null);
 
   const applyRangePreset = (preset: 'today' | 'week' | 'month' | 'year') => {
     const now = new Date();
@@ -87,6 +95,25 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
 
   const completedPeriodFlights = useMemo(
     () => periodFlights.filter((f) => f.flightStatus === 'Completed'),
+    [periodFlights]
+  );
+
+  // Contributing-flight sets reused by the KPI cards below.
+  const completedFlightsList = completedPeriodFlights;
+  const delayedFlightsList = useMemo(
+    () => completedFlightsList.filter((f) => f.delays.some((d) => d.code && d.code.trim() !== '93')),
+    [completedFlightsList]
+  );
+  const onTimeFlightsList = useMemo(
+    () => completedFlightsList.filter((f) => !f.delays.some((d) => d.code && d.code.trim() !== '93')),
+    [completedFlightsList]
+  );
+  const canceledFlightsList = useMemo(
+    () => periodFlights.filter((f) => f.flightStatus === 'Canceled'),
+    [periodFlights]
+  );
+  const inProgressFlightsList = useMemo(
+    () => periodFlights.filter((f) => f.flightStatus !== 'Completed' && f.flightStatus !== 'Canceled'),
     [periodFlights]
   );
 
@@ -477,6 +504,13 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
     return ((completedPeriodFlights.length - delayedBy31To39) / completedPeriodFlights.length) * 100;
   }, [completedPeriodFlights]);
 
+  // Delay-code lookup: which flights carry a given code (used by the delay/OTP reports).
+  const flightsByDelayCode = (code: string) => completedFlightsList.filter((f) => f.delays.some((d) => d.code === code));
+
+  const openDrilldown = (title: string, subtitle: string, drills: Flight[]) => {
+    setDetailDrilldown({ title, subtitle, flights: drills });
+  };
+
   // Handle Export All Reports to Excel CSV
   const handleExportAllToExcel = () => {
     let csvContent = `FLIGHT OPERATIONS ANALYTICAL REPORT\r\nPeriod: ${dateFrom} to ${dateTo}\r\n\r\n`;
@@ -622,16 +656,38 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
 
       {/* KPI Metric Cards (Matching frmFlightStatistics) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-xs">
-        <div className="p-4 glass-card rounded-2xl border border-slate-200 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-xl">
+        <HoverDetail
+          title="Total Flights"
+          subtitle={`All movements in ${dateFrom} → ${dateTo}`}
+          metrics={[
+            { label: 'Total', value: String(stats.totalFlights) },
+            { label: 'Airlines', value: String(stats.uniqueAirlines) },
+            { label: 'Agencies', value: String(stats.uniqueAgencies) },
+          ]}
+          flights={periodFlights}
+          onExplore={() => openDrilldown('Total Flights', `${dateFrom} → ${dateTo}`, periodFlights)}
+          className="glass-card p-4 rounded-2xl border border-slate-200 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-xl"
+        >
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
             <span className="font-medium">Total Flights</span>
             <Plane className="w-4 h-4 text-sky-600 dark:text-sky-400" />
           </div>
           <div className="text-2xl font-black text-slate-900 dark:text-white font-mono tracking-tight">{stats.totalFlights}</div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">In operational period</div>
-        </div>
+        </HoverDetail>
 
-        <div className="p-4 glass-card rounded-2xl border border-slate-200 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-xl">
+        <HoverDetail
+          title="Completed Flights"
+          subtitle={`${stats.completionRate.toFixed(1)}% of active movements`}
+          metrics={[
+            { label: 'Completed', value: String(stats.completedFlights), tone: 'emerald' },
+            { label: 'Pax out', value: stats.totalPaxOut.toLocaleString(), tone: 'sky' },
+            { label: 'Bags out', value: stats.totalBagsOut.toLocaleString(), tone: 'sky' },
+          ]}
+          flights={completedFlightsList}
+          onExplore={() => openDrilldown('Completed Flights', `${dateFrom} → ${dateTo}`, completedFlightsList)}
+          className="glass-card p-4 rounded-2xl border border-slate-200 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-xl"
+        >
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
             <span className="font-medium">Completed</span>
             <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
@@ -642,9 +698,22 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
           <div className="text-[10px] text-emerald-700 dark:text-emerald-300 font-semibold mt-1">
             {stats.completionRate.toFixed(1)}% completion
           </div>
-        </div>
+        </HoverDetail>
 
-        <div className="p-4 glass-card rounded-2xl border border-slate-200 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-xl">
+        <HoverDetail
+          title="Delayed Flights"
+          subtitle="Completed flights carrying a non-93 delay code"
+          metrics={[
+            { label: 'Delayed', value: String(stats.delayedFlights), tone: 'amber' },
+            { label: 'Total delay', value: `${stats.totalDelayMinutesAll} min`, tone: 'amber' },
+            { label: 'Avg / flight', value: `${stats.avgDelayMinutes.toFixed(1)} min`, tone: 'amber' },
+            { label: 'Worst', value: `${stats.worstDelayMinutes} min`, tone: 'rose' },
+          ]}
+          flights={delayedFlightsList}
+          flightNote={(f) => (f.delayMinutesTotal ? `${f.delayMinutesTotal}m` : null)}
+          onExplore={() => openDrilldown('Delayed Flights', 'Completed flights with a non-93 delay code', delayedFlightsList)}
+          className="glass-card p-4 rounded-2xl border border-slate-200 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-xl"
+        >
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
             <span className="font-medium">Delayed Flights</span>
             <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
@@ -655,18 +724,39 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
           <div className="text-[10px] text-amber-700 dark:text-amber-300 font-semibold mt-1">
             Avg {stats.avgDelayMinutes.toFixed(1)} min / delayed flight
           </div>
-        </div>
+        </HoverDetail>
 
-        <div className="p-4 glass-card rounded-2xl border border-slate-200 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-xl">
+        <HoverDetail
+          title="On-Time Flights"
+          subtitle="Completed flights with no non-93 delay code"
+          metrics={[
+            { label: 'On-time', value: String(stats.onTimeFlights), tone: 'sky' },
+            { label: 'OTP rate', value: `${stats.onTimeRate.toFixed(1)}%`, tone: 'sky' },
+            { label: 'Evaluated', value: String(stats.completedFlights) },
+          ]}
+          flights={onTimeFlightsList}
+          onExplore={() => openDrilldown('On-Time Flights', 'Completed flights with no non-93 delay code', onTimeFlightsList)}
+          className="glass-card p-4 rounded-2xl border border-slate-200 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-xl"
+        >
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
             <span className="font-medium">On-Time Flights</span>
             <Clock className="w-4 h-4 text-sky-600 dark:text-sky-400" />
           </div>
           <div className="text-2xl font-black text-sky-600 dark:text-sky-400 font-mono tracking-tight">{stats.onTimeFlights}</div>
           <div className="text-[10px] text-sky-700 dark:text-sky-300 font-semibold mt-1">{stats.onTimeRate.toFixed(1)}% punctuality</div>
-        </div>
+        </HoverDetail>
 
-        <div className="p-4 glass-card rounded-2xl border border-slate-200 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-xl">
+        <HoverDetail
+          title="Canceled Flights"
+          subtitle={`${stats.cancelationRate.toFixed(1)}% of all movements`}
+          metrics={[
+            { label: 'Canceled', value: String(stats.canceledFlights), tone: 'rose' },
+            { label: 'Cancel rate', value: `${stats.cancelationRate.toFixed(1)}%`, tone: 'rose' },
+          ]}
+          flights={canceledFlightsList}
+          onExplore={() => openDrilldown('Canceled Flights', `${dateFrom} → ${dateTo}`, canceledFlightsList)}
+          className="glass-card p-4 rounded-2xl border border-slate-200 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-xl"
+        >
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
             <span className="font-medium">Canceled</span>
             <XCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
@@ -675,9 +765,16 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
           <div className="text-[10px] text-rose-700 dark:text-rose-300 font-semibold mt-1">
             {stats.cancelationRate.toFixed(1)}% cancel rate
           </div>
-        </div>
+        </HoverDetail>
 
-        <div className="p-4 glass-card rounded-2xl border-slate-200 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-xl">
+        <HoverDetail
+          title="In-Progress Movements"
+          subtitle="Not yet completed or canceled"
+          metrics={[{ label: 'In progress', value: String(stats.inProgressFlights), tone: 'indigo' }]}
+          flights={inProgressFlightsList}
+          onExplore={() => openDrilldown('In-Progress Movements', `${dateFrom} → ${dateTo}`, inProgressFlightsList)}
+          className="glass-card p-4 rounded-2xl border border-slate-200 dark:border-white/10 shadow-lg dark:shadow-xl backdrop-blur-xl"
+        >
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-1">
             <span className="font-medium">In Progress</span>
             <TrendingUp className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
@@ -688,7 +785,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
           <div className="text-[10px] text-indigo-700 dark:text-indigo-300 font-semibold mt-1">
             Active / not yet completed
           </div>
-        </div>
+        </HoverDetail>
       </div>
 
       {/* Secondary Passenger & Baggage Metrics */}
@@ -1149,7 +1246,31 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                   </tr>
                 ) : (
                   airlineReport.map((a, i) => (
-                    <tr key={i} className="hover:bg-slate-100/60 dark:hover:bg-white/5 transition-colors">
+                    <HoverDetail
+                      key={i}
+                      as="tr"
+                      className="hover:bg-slate-100/60 dark:hover:bg-white/5 transition-colors"
+                      title={a.airlineName}
+                      subtitle="Airline performance contribution"
+                      metrics={[
+                        { label: 'Total', value: String(a.total) },
+                        { label: 'Completed', value: String(a.completed), tone: 'emerald' },
+                        { label: 'Delayed', value: String(a.delayed), tone: 'amber' },
+                        { label: 'On-time', value: String(a.onTime), tone: 'sky' },
+                        { label: 'OTP', value: `${a.otpRate.toFixed(1)}%`, tone: 'sky' },
+                        { label: 'Canceled', value: String(a.canceled), tone: 'rose' },
+                        { label: 'Pax', value: a.totalPax.toLocaleString() },
+                        { label: 'Bags', value: a.totalBags.toLocaleString() },
+                      ]}
+                      flights={periodFlights.filter((f) => f.airlineName === a.airlineName)}
+                      onExplore={() =>
+                        openDrilldown(
+                          `${a.airlineName} — Airline Performance`,
+                          `${dateFrom} → ${dateTo} · ${a.total} movements`,
+                          periodFlights.filter((f) => f.airlineName === a.airlineName)
+                        )
+                      }
+                    >
                       <td className="p-3 font-sans font-bold text-slate-900 dark:text-slate-100">{a.airlineName}</td>
                       <td className="p-3 text-right font-bold text-slate-900 dark:text-white">{a.total}</td>
                       <td className="p-3 text-right text-emerald-600 dark:text-emerald-400">{a.completed}</td>
@@ -1161,7 +1282,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                       <td className="p-3 text-right text-slate-800 dark:text-slate-200">{a.totalBags.toLocaleString()}</td>
                       <td className="p-3 text-right text-slate-800 dark:text-slate-200">{a.avgPax.toFixed(1)}</td>
                       <td className="p-3 text-right text-slate-800 dark:text-slate-200">{a.cancelationRate.toFixed(1)}%</td>
-                    </tr>
+                    </HoverDetail>
                   ))
                 )}
               </tbody>
@@ -1196,7 +1317,31 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                   </tr>
                 ) : (
                   agencyReport.map((g, i) => (
-                    <tr key={i} className="hover:bg-slate-100/60 dark:hover:bg-white/5 transition-colors">
+                    <HoverDetail
+                      key={i}
+                      as="tr"
+                      className="hover:bg-slate-100/60 dark:hover:bg-white/5 transition-colors"
+                      title={g.agencyName}
+                      subtitle="Agency handling contribution"
+                      metrics={[
+                        { label: 'Total', value: String(g.total) },
+                        { label: 'Completed', value: String(g.completed), tone: 'emerald' },
+                        { label: 'Delayed', value: String(g.delayed), tone: 'amber' },
+                        { label: 'Canceled', value: String(g.canceled), tone: 'rose' },
+                        { label: 'On-time', value: `${g.otpRate.toFixed(1)}%`, tone: 'sky' },
+                        { label: 'Pax', value: g.totalPax.toLocaleString() },
+                        { label: 'Bags', value: g.totalBags.toLocaleString() },
+                        { label: 'Avg pax/flt', value: g.avgPax.toFixed(1) },
+                      ]}
+                      flights={periodFlights.filter((f) => f.agencyName === g.agencyName)}
+                      onExplore={() =>
+                        openDrilldown(
+                          `${g.agencyName} — Agency Handling`,
+                          `${dateFrom} → ${dateTo} · ${g.total} movements`,
+                          periodFlights.filter((f) => f.agencyName === g.agencyName)
+                        )
+                      }
+                    >
                       <td className="p-3 font-sans font-bold text-slate-900 dark:text-slate-100">{g.agencyName}</td>
                       <td className="p-3 text-right font-bold text-slate-900 dark:text-white">{g.total}</td>
                       <td className="p-3 text-right text-emerald-600 dark:text-emerald-400">{g.completed}</td>
@@ -1207,7 +1352,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                       <td className="p-3 text-right text-slate-800 dark:text-slate-200">{g.avgPax.toFixed(1)}</td>
                       <td className="p-3 text-right text-slate-800 dark:text-slate-200">{g.avgBags.toFixed(1)}</td>
                       <td className={`p-3 text-right font-bold ${g.otpRate >= 85 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>{g.otpRate.toFixed(1)}%</td>
-                    </tr>
+                    </HoverDetail>
                   ))
                 )}
               </tbody>
@@ -1295,7 +1440,29 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                   aircraftReport.map((item) => {
                     const share = periodFlights.length ? (item.flights / periodFlights.length) * 100 : 0;
                     return (
-                      <tr key={item.aircraftType} className="hover:bg-slate-100/60 dark:hover:bg-white/5">
+                      <HoverDetail
+                        key={item.aircraftType}
+                        as="tr"
+                        className="hover:bg-slate-100/60 dark:hover:bg-white/5 transition-colors"
+                        title={`${item.aircraftType} — Aircraft Breakdown`}
+                        subtitle="Fleet type contribution"
+                        metrics={[
+                          { label: 'Flights', value: String(item.flights) },
+                          { label: 'Canceled', value: String(item.canceled), tone: 'rose' },
+                          { label: 'Passengers', value: item.pax.toLocaleString() },
+                          { label: 'Bags', value: item.bags.toLocaleString() },
+                          { label: 'Avg pax/flt', value: item.avgPax.toFixed(1) },
+                          { label: 'Share', value: `${share.toFixed(1)}%`, tone: 'sky' },
+                        ]}
+                        flights={periodFlights.filter((f) => (f.aircraftType || 'Unknown') === item.aircraftType)}
+                        onExplore={() =>
+                          openDrilldown(
+                            `${item.aircraftType} — Aircraft Breakdown`,
+                            `${dateFrom} → ${dateTo} · ${item.flights} movements`,
+                            periodFlights.filter((f) => (f.aircraftType || 'Unknown') === item.aircraftType)
+                          )
+                        }
+                      >
                         <td className="p-3 font-sans font-bold text-slate-900 dark:text-slate-100">{item.aircraftType}</td>
                         <td className="p-3 text-right font-bold text-slate-900 dark:text-white">{item.flights}</td>
                         <td className="p-3 text-right text-rose-600 dark:text-rose-400">{item.canceled}</td>
@@ -1310,7 +1477,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                             {share.toFixed(1)}%
                           </span>
                         </td>
-                      </tr>
+                      </HoverDetail>
                     );
                   })
                 )}
@@ -1331,13 +1498,36 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                 {delayOtpReport.map((item) => (
-                  <tr key={item.code} className="hover:bg-slate-100/60 dark:hover:bg-white/5">
+                  <HoverDetail
+                    key={item.code}
+                    as="tr"
+                    className="hover:bg-slate-100/60 dark:hover:bg-white/5 transition-colors"
+                    title={`OTP Code ${item.code}`}
+                    subtitle={item.description}
+                    metrics={[
+                      { label: 'Affected', value: String(item.affectedFlights), tone: 'amber' },
+                      { label: 'Total delay', value: `${item.totalMinutes} min`, tone: 'amber' },
+                      { label: 'OTP impact', value: `${item.otpImpact.toFixed(1)}%`, tone: 'rose' },
+                    ]}
+                    flights={flightsByDelayCode(item.code)}
+                    flightNote={(f) => {
+                      const mins = f.delays.filter((x) => x.code === item.code).reduce((s, x) => s + (x.minutes || 0), 0);
+                      return mins ? `${mins}m` : null;
+                    }}
+                    onExplore={() =>
+                      openDrilldown(
+                        `OTP Code ${item.code} — ${item.description}`,
+                        `${item.affectedFlights} affected flights · ${item.totalMinutes} min · ${item.otpImpact.toFixed(1)}% impact`,
+                        flightsByDelayCode(item.code)
+                      )
+                    }
+                  >
                     <td className="p-3 font-mono font-bold text-amber-700 dark:text-amber-400">{item.code}</td>
                     <td className="p-3 text-slate-700 dark:text-slate-300">{item.description}</td>
                     <td className="p-3 text-right font-mono">{item.flights}</td>
                     <td className="p-3 text-right font-mono">{item.totalMinutes} min</td>
                     <td className="p-3 text-right font-mono text-amber-700 dark:text-amber-300">{item.otpImpact.toFixed(1)}%</td>
-                  </tr>
+                  </HoverDetail>
                 ))}
               </tbody>
             </table>
@@ -1367,7 +1557,31 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                   </tr>
                 ) : (
                   delayReport.map((d, i) => (
-                    <tr key={i} className="hover:bg-slate-100/60 dark:hover:bg-white/5 transition-colors">
+                    <HoverDetail
+                      key={i}
+                      as="tr"
+                      className="hover:bg-slate-100/60 dark:hover:bg-white/5 transition-colors"
+                      title={`Delay Code ${d.code}`}
+                      subtitle={d.description}
+                      metrics={[
+                        { label: 'Occurrences', value: String(d.occurrences), tone: 'amber' },
+                        { label: 'Total', value: `${d.totalMinutes} min`, tone: 'amber' },
+                        { label: 'Avg', value: `${d.avgMinutes.toFixed(1)} min` },
+                        { label: 'Category', value: d.category },
+                      ]}
+                      flights={flightsByDelayCode(d.code)}
+                      flightNote={(f) => {
+                        const mins = f.delays.filter((x) => x.code === d.code).reduce((s, x) => s + (x.minutes || 0), 0);
+                        return mins ? `${mins}m` : null;
+                      }}
+                      onExplore={() =>
+                        openDrilldown(
+                          `Delay Code ${d.code} — ${d.category}`,
+                          `${d.description} · ${d.occurrences} occurrences · ${d.totalMinutes} min`,
+                          flightsByDelayCode(d.code)
+                        )
+                      }
+                    >
                       <td className="p-3 font-mono font-bold text-amber-700 dark:text-amber-400">{d.code}</td>
                       <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">{d.category}</td>
                       <td className="p-3 text-slate-600 dark:text-slate-300">{d.description}</td>
@@ -1376,7 +1590,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                         {d.totalMinutes} min ({formatMinutesToHHMM(d.totalMinutes)})
                       </td>
                       <td className="p-3 font-mono text-right text-slate-800 dark:text-slate-200">{d.avgMinutes.toFixed(1)} min</td>
-                    </tr>
+                    </HoverDetail>
                   ))
                 )}
               </tbody>
@@ -1384,6 +1598,15 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
           </div>
         )}
       </div>
+
+      {/* Contributing-flights exploration drawer (opened from any hovered card / row) */}
+      <StatisticsDetailDrawer
+        open={detailDrilldown !== null}
+        onClose={() => setDetailDrilldown(null)}
+        title={detailDrilldown?.title || ''}
+        subtitle={detailDrilldown?.subtitle}
+        flights={detailDrilldown?.flights || []}
+      />
     </div>
   );
 };
