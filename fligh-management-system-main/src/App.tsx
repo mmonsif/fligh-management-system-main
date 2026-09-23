@@ -42,6 +42,52 @@ const snapshotsEqual = (a: DatabaseSnapshot, b: DatabaseSnapshot): boolean =>
   a.agencies === b.agencies &&
   a.templates === b.templates;
 
+// Idle session timeout. The signed-in session is dropped automatically once the
+// user has been inactive for this long (no input, no interaction, tab hidden).
+const IDLE_SESSION_TIMEOUT_MS = 15 * 60 * 1000;
+const IDLE_ACTIVITY_WRITE_THROTTLE_MS = 5000;
+// Written by a timer running in ANY tab of this origin, so activity performed in
+// one tab keeps every other tab's session alive instead of letting a background
+// tab sign itself out while the user is still working next to it.
+const LAST_ACTIVITY_STORAGE_KEY = 'fms_last_activity';
+
+const safeGetItem = (key: string): string | null => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
+const safeSetItem = (key: string, value: string): void => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Private mode / storage disabled: fall back to the in-session state only.
+  }
+};
+
+const safeRemoveItem = (key: string): void => {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+};
+
+/**
+ * Resolves the timestamp of the user's most recent activity, writing a fresh one
+ * when nothing is stored yet (i.e. right after a login) or when the stored value
+ * is corrupted. A stored timestamp from the future is clamped to `now` so a clock
+ * change can never keep a session alive past its true idle deadline.
+ */
+const readLastActivity = (existing: string | null, now: number): number => {
+  const parsed = existing ? Number(existing) : NaN;
+  if (Number.isFinite(parsed) && parsed > 0 && parsed <= now) return parsed;
+  safeSetItem(LAST_ACTIVITY_STORAGE_KEY, String(now));
+  return now;
+};
+
 const roleTabs: Record<UserRole, ActiveTab[]> = {
   staff: ['manage-flights'],
   manager: ['manage-flights', 'statistics'],
@@ -51,14 +97,30 @@ const roleTabs: Record<UserRole, ActiveTab[]> = {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('manage-flights');
+  // Restore the persisted session, but only while it is still within the idle
+  // timeout. Without this check a reload/browser restart would resurrect a
+  // session the timeout had already (or should have) expired.
   const [user, setUser] = useState<AuthUser | null>(() => {
+    const saved = safeGetItem('fms_user');
+    if (!saved) return null;
+
+    const lastActivity = readLastActivity(safeGetItem(LAST_ACTIVITY_STORAGE_KEY), Date.now());
+    if (Date.now() - lastActivity >= IDLE_SESSION_TIMEOUT_MS) {
+      safeRemoveItem('fms_user');
+      safeRemoveItem(LAST_ACTIVITY_STORAGE_KEY);
+      return null;
+    }
+
     try {
-      const saved = localStorage.getItem('fms_user');
-      return saved ? JSON.parse(saved) : null;
+      return JSON.parse(saved);
     } catch {
       return null;
     }
   });
+  const [sessionExpired, setSessionExpired] = useState(false);
+  /** Last time the session was renewed (drives the idle countdown) + write throttle. */
+  const lastActivityRef = useRef(readLastActivity(safeGetItem(LAST_ACTIVITY_STORAGE_KEY), Date.now()));
+  const lastActivityWriteRef = useRef(0);
   const [databaseLoaded, setDatabaseLoaded] = useState(!isSupabaseConfigured);
   // Baseline of the last state we know is persisted in Supabase. The save effect
   // diffs the current state against this to compute changed rows, so it MUST stay
@@ -70,15 +132,89 @@ export default function App() {
 
   const allowedTabs = user ? roleTabs[user.role] : [];
 
+  // Idle sign-out. While a user is signed in, any real interaction (mouse, key,
+  // touch, scroll, tab focus) renews the session; once 15 minutes pass with no
+  // activity the session is cleared and the login screen is shown again.
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const now = Date.now();
+    lastActivityRef.current = readLastActivity(safeGetItem(LAST_ACTIVITY_STORAGE_KEY), now);
+    lastActivityWriteRef.current = now;
+
+    const markActivity = () => {
+      const current = Date.now();
+      lastActivityRef.current = current;
+      // Throttle the storage write: the in-memory ref already keeps this tab
+      // accurate, so the cross-tab timestamp only needs rough granularity.
+      if (current - lastActivityWriteRef.current >= IDLE_ACTIVITY_WRITE_THROTTLE_MS) {
+        lastActivityWriteRef.current = current;
+        safeSetItem(LAST_ACTIVITY_STORAGE_KEY, String(current));
+      }
+    };
+
+    const expireSession = () => {
+      safeRemoveItem('fms_user');
+      safeRemoveItem(LAST_ACTIVITY_STORAGE_KEY);
+      lastActivityRef.current = Date.now();
+      setUser(null);
+      setSessionExpired(true);
+    };
+
+    // Any of these signals proves the user is present and using the app.
+    const activityEvents: (keyof WindowEventMap)[] = [
+      'pointermove',
+      'pointerdown',
+      'keydown',
+      'wheel',
+      'touchstart',
+      'scroll',
+      'focus',
+    ];
+    const handleVisibilityChange = () => {
+      // Returning to the tab is activity; the interval below still verifies that
+      // the tab was not left hidden for longer than the whole timeout window.
+      if (document.visibilityState === 'visible') markActivity();
+    };
+
+    activityEvents.forEach((eventName) =>
+      window.addEventListener(eventName, markActivity, { capture: true, passive: true })
+    );
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', markActivity);
+
+    const intervalId = window.setInterval(() => {
+      const now = Date.now();
+      // A longer write from another tab (user is working there) also renews us.
+      const stored = Number(safeGetItem(LAST_ACTIVITY_STORAGE_KEY));
+      if (Number.isFinite(stored) && stored > lastActivityRef.current) {
+        lastActivityRef.current = stored;
+      }
+      if (now - lastActivityRef.current >= IDLE_SESSION_TIMEOUT_MS) {
+        expireSession();
+      }
+    }, 1000);
+
+    return () => {
+      activityEvents.forEach((eventName) =>
+        window.removeEventListener(eventName, markActivity, { capture: true })
+      );
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', markActivity);
+      window.clearInterval(intervalId);
+    };
+  }, [user]);
+
   useEffect(() => {
     if (user) {
-      localStorage.setItem('fms_user', JSON.stringify(user));
+      safeSetItem('fms_user', JSON.stringify(user));
     }
   }, [user]);
 
   useEffect(() => {
     const handleSessionCleanup = () => {
-      localStorage.removeItem('fms_user');
+      safeRemoveItem('fms_user');
+      safeRemoveItem(LAST_ACTIVITY_STORAGE_KEY);
       setUser(null);
     };
 
@@ -172,12 +308,20 @@ export default function App() {
   }, [activeTab, allowedTabs, user]);
 
   const handleLogin = (nextUser: AuthUser) => {
+    // Start the idle countdown from the moment of sign-in.
+    const now = Date.now();
+    lastActivityRef.current = now;
+    lastActivityWriteRef.current = now;
+    safeSetItem(LAST_ACTIVITY_STORAGE_KEY, String(now));
+    setSessionExpired(false);
     setUser(nextUser);
     setActiveTab(roleTabs[nextUser.role][0]);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('fms_user');
+    safeRemoveItem('fms_user');
+    safeRemoveItem(LAST_ACTIVITY_STORAGE_KEY);
+    setSessionExpired(false);
     setUser(null);
   };
 
@@ -300,7 +444,7 @@ export default function App() {
   }, [databaseLoaded, flights, airlines, agencies, templates]);
 
   if (!user) {
-    return <LoginPage onLogin={handleLogin} />;
+    return <LoginPage onLogin={handleLogin} autoSignOutNotice={sessionExpired} />;
   }
 
   // Reset data handler

@@ -1,11 +1,13 @@
 import React, { FormEvent, useState } from 'react';
-import { AlertCircle, LockKeyhole, Plane, UserRound } from 'lucide-react';
+import { AlertCircle, Clock, LockKeyhole, Plane, UserRound } from 'lucide-react';
 import { AuthUser, UserRole } from '../types';
 import { authenticateUser } from '../lib/database';
 import { isSupabaseConfigured } from '../lib/supabase';
 
 interface LoginPageProps {
   onLogin: (user: AuthUser) => void;
+  /** Shows a notice explaining that the previous session ended on its own. */
+  autoSignOutNotice?: boolean;
 }
 
 const demoAccounts: { role: UserRole; label: string; username: string; password: string }[] = [
@@ -15,7 +17,7 @@ const demoAccounts: { role: UserRole; label: string; username: string; password:
   { role: 'admin', label: 'Administrator', username: 'admin', password: 'admin123' },
 ];
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, autoSignOutNotice = false }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -56,6 +58,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="px-8 py-8 space-y-5">
+          {autoSignOutNotice && (
+            <div role="status" className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+              <Clock className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>You were signed out automatically after 15 minutes of inactivity. Please sign in again.</span>
+            </div>
+          )}
+
           {error && (
             <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
