@@ -145,8 +145,10 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
   const [isFilterActive, setIsFilterActive] = useState<boolean>(true);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
-  // Sort â€” clickable STA / STD column headers replace the old dropdown
-  const [sortKey, setSortKey] = useState<'staUtc' | 'stdUtc'>('staUtc');
+  // Sort â€” clickable STA / STD column headers replace the old dropdown.
+  // Defaults to STD ascending so a day's list reads in departure order, which is
+  // what operations works off; STA ascending is one header click away.
+  const [sortKey, setSortKey] = useState<'staUtc' | 'stdUtc'>('stdUtc');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   // Modals
@@ -467,12 +469,28 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
     return flights.filter((f) => {
       // Date range filter
       if (isFilterActive) {
-        const flightTime = new Date(f.staUtc).getTime();
         const fromTime = new Date(toFilterUtc(filterFromDate, filterFromTime) || '').getTime();
         const toTime = new Date(toFilterUtc(filterToDate, filterToTime) || '').getTime();
-        if (flightTime < fromTime || flightTime > toTime) {
+
+        // A flight spans two UTC days when it arrives (STA) before midnight and
+        // departs (STD) after midnight (e.g. STA 21 Sep 23:50, STD 22 Sep 00:40).
+        // Such a flight belongs to BOTH days' lists, so it must be shown on any
+        // day whose range overlaps either its STA or its STD. Checking only STA
+        // (the old behaviour) hid the flight from 22 Sep entirely.
+        const staTime = new Date(f.staUtc).getTime();
+        const stdTime = f.stdUtc ? new Date(f.stdUtc).getTime() : NaN;
+        const inRange = (t: number) => !isNaN(t) && t >= fromTime && t <= toTime;
+
+        if (!inRange(staTime) && !inRange(stdTime)) {
           return false;
         }
+
+        // Order inside the filtered (operational day) list stays by STD ascending,
+        // regardless of the column sort currently applied to the table, so an
+        // overnight movement keeps its natural departure position rather than
+        // leading the day off its pre-midnight arrival time. When the column sort
+        // is itself STD the two agree, and a stable sort preserves this order.
+        return true;
       }
 
       // Status filter
@@ -509,6 +527,9 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
     });
   }, [flights, isFilterActive, filterFromDate, filterFromTime, filterToDate, filterToTime, statusFilter, filterTriangleOnly, searchTerm]);
 
+  // Column sort for the table. Sorting by the same key is stable in every modern
+  // engine, so the STD-ascending order kept by `filteredFlights` survives when the
+  // user sorts by STD and acts as a deterministic tie-breaker otherwise.
   const sortedFlights = useMemo(
     () => [...filteredFlights].sort((a, b) => {
       const aTime = new Date(a[sortKey]).getTime();
