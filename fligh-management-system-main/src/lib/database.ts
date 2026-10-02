@@ -183,25 +183,42 @@ const failIfError = <T>(result: { data: T | null; error: { message: string } | n
   return result.data || [];
 };
 
+const loadAllFlights = async (): Promise<DatabaseFlight[]> => {
+  const pageSize = 1000;
+  const flights: DatabaseFlight[] = [];
+  let pageStart = 0;
+
+  while (true) {
+    const result = await supabase!
+      .from('flights')
+      .select('*')
+      .order('flight_id', { ascending: false })
+      .range(pageStart, pageStart + pageSize - 1);
+    const page = failIfError<DatabaseFlight[]>(result);
+    flights.push(...page);
+    if (page.length < pageSize) return flights;
+    pageStart += pageSize;
+  }
+};
+
 export const loadDatabaseSnapshot = async (): Promise<DatabaseSnapshot | null> => {
   if (!isSupabaseConfigured || !supabase) return null;
 
   const [flightsResult, airlinesResult, agenciesResult, templatesResult, schedulesResult] = await Promise.all([
-    supabase.from('flights').select('*').order('flight_id', { ascending: false }),
+    loadAllFlights(),
     supabase.from('airlines').select('*').order('airline_id'),
     supabase.from('agencies').select('*').order('agency_id'),
     supabase.from('flight_templates').select('*').order('template_id'),
     supabase.from('template_schedules').select('*').order('template_id'),
   ]);
 
+  const flights = flightsResult.map(mapFlight);
   const airlines = failIfError<DatabaseAirline[]>(airlinesResult).map(mapAirline);
   const agencies = failIfError<DatabaseAgency[]>(agenciesResult).map(mapAgency);
   const schedules = failIfError<DatabaseSchedule[]>(schedulesResult).map(mapSchedule);
   const templates = failIfError<DatabaseTemplate[]>(templatesResult).map((row) =>
     mapTemplate(row, schedules.find((schedule) => schedule.templateId === row.template_id))
   );
-  const flights = failIfError<DatabaseFlight[]>(flightsResult).map(mapFlight);
-
   return { flights, airlines, agencies, templates };
 };
 
