@@ -1,23 +1,12 @@
 import { Flight, Airline, Agency, FlightTemplate } from '../types';
 
-export const INITIAL_AIRLINES: Airline[] = [
-  { airlineId: 1, airlineName: 'EgyptAir', iataCode: 'MS', country: 'Egypt' },
-  { airlineId: 2, airlineName: 'Saudia', iataCode: 'SV', country: 'Saudi Arabia' },
-  { airlineId: 3, airlineName: 'Emirates', iataCode: 'EK', country: 'UAE' },
-  { airlineId: 4, airlineName: 'British Airways', iataCode: 'BA', country: 'United Kingdom' },
-  { airlineId: 5, airlineName: 'Lufthansa', iataCode: 'LH', country: 'Germany' },
-  { airlineId: 6, airlineName: 'Qatar Airways', iataCode: 'QR', country: 'Qatar' },
-  { airlineId: 7, airlineName: 'Turkish Airlines', iataCode: 'TK', country: 'Turkey' },
-  { airlineId: 8, airlineName: 'FlyDubai', iataCode: 'FZ', country: 'UAE' },
-];
+// No default airlines are shipped. Airlines are created from inside the
+// application and persisted to the database (or localStorage when offline).
+export const INITIAL_AIRLINES: Airline[] = [];
 
-export const INITIAL_AGENCIES: Agency[] = [
-  { agencyId: 1, agencyName: 'Global Aviation Services', contactEmail: 'ops@globalaviation.com', phone: '+20 2 2265 1100' },
-  { agencyId: 2, agencyName: 'Swissport Executive Handling', contactEmail: 'cai.station@swissport.com', phone: '+20 2 2265 3344' },
-  { agencyId: 3, agencyName: 'Menzies Aviation Cairo', contactEmail: 'dispatch@menzies.aero', phone: '+20 2 2265 4488' },
-  { agencyId: 4, agencyName: 'Dnata Ground Operations', contactEmail: 'groundops@dnata.com', phone: '+971 4 606 4000' },
-  { agencyId: 5, agencyName: 'National Handling Services', contactEmail: 'ops@nationalhandling.eg', phone: '+20 2 2265 7799' },
-];
+// No default agencies are shipped. Agencies are created from inside the
+// application and persisted to the database (or localStorage when offline).
+export const INITIAL_AGENCIES: Agency[] = [];
 
 export const INITIAL_TEMPLATES: FlightTemplate[] = [
   {

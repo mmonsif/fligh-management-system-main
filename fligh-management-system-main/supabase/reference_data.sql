@@ -1,5 +1,11 @@
--- Replace reference data only. This does not delete users, flights, templates,
--- or schedules. Run after schema.sql, or use it to refresh an existing setup.
+-- Reference data only (delay codes). This does not delete users, flights,
+-- templates, schedules, airlines, or agencies. Run after schema.sql, or use it
+-- to refresh the delay-code list on an existing setup.
+--
+-- Airlines and agencies are intentionally NOT seeded here. They are managed from
+-- inside the application and stored in the Supabase tables, so this script leaves
+-- those tables untouched. Running it will never re-add reference/demo airlines or
+-- agencies that were deleted in the app.
 
 create table if not exists public.delay_codes (
   code text primary key,
@@ -10,14 +16,6 @@ create table if not exists public.delay_codes (
 alter table public.airlines add column if not exists handling_company text;
 
 delete from public.delay_codes;
-
--- Existing flights/templates reference airlines and agencies. Clear those
--- dependent records first so the requested reference-data replacement works.
-delete from public.template_schedules;
-delete from public.flights;
-delete from public.flight_templates;
-delete from public.airlines;
-delete from public.agencies;
 
 insert into public.delay_codes (code, category, description) values
 ('00','Internal Airline','Airline-defined internal delay code'),('01','Internal Airline','Airline-defined internal delay code'),('02','Internal Airline','Airline-defined internal delay code'),('03','Internal Airline','Three-class system moving curtain'),('04','Internal Airline','Airline-defined internal delay code'),('05','Internal Airline','Airline-defined internal delay code'),('06','Internal Airline','No gate/stand availability due to own airline activity'),('07','Internal Airline','Aircraft connection by maintenance'),('08','Internal Airline','Aircraft connection by miscellaneous airline, handling, or cabin operations'),('09','Internal Airline','Scheduled ground time less than declared minimum ground time'),
@@ -31,8 +29,5 @@ insert into public.delay_codes (code, category, description) values
 ('81','Air Traffic Control','ATC restriction en-route or capacity'),('82','Air Traffic Control','ATC staff shortage or equipment failure en-route'),('83','Air Traffic Control','ATC restriction at destination'),('84','Air Traffic Control','ATC restriction due to destination weather'),('85','Air Traffic Control','Mandatory security'),('86','Air Traffic Control','Immigration, customs, or health'),('87','Air Traffic Control','Airport facilities, stands, ramp, buildings, or gate limitations'),('88','Air Traffic Control','Destination airport or runway restriction'),('89','Air Traffic Control','Departure airport or runway restriction'),
 ('91','Miscellaneous','Passenger or load connection'),('92','Miscellaneous','Through check-in error'),('93','Miscellaneous','Aircraft rotation or late arrival from previous sector'),('94','Miscellaneous','Cabin crew rotation'),('95','Miscellaneous','Crew rotation'),('96','Miscellaneous','Operations control, rerouting, diversion, or consolidation'),('97','Miscellaneous','Industrial action within own airline'),('98','Miscellaneous','Industrial action outside own airline, excluding ATS'),('99','Miscellaneous','Miscellaneous, not elsewhere specified');
 
-insert into public.airlines (airline_id, airline_name, iata_code, handling_company) values
-(1,'AIR CAIRO','SM','AIR CAIRO'),(2,'EGYPT AIR','MS','EGYPT AIR'),(3,'NEOS','NO','TOP AVIATION'),(4,'WIZZ AIR','W6','NEW STAR AVIATION'),(5,'WIZZ AIR','W4','NEW STAR AVIATION'),(6,'EUROWINGS','EW','INTERNATIONAL'),(7,'TRANSAVIA','HV','LINK'),(8,'BRUSSELS AIRLINES','SN','LINK'),(9,'EDELWEISS','WK','INTERNATIONAL'),(10,'EUROWINGS DISCOVER','4Y','INTERNATIONAL'),(11,'TUI FLY','X3','TOP AVIATION'),(12,'LUX AIR','LG','TIGER'),(13,'TUI FLY BELGIUM','TB','TOP AVIATION'),(14,'TUI AIRWAYS','BY','TOP AVIATION'),(15,'FREE BIRD','FH','TIGER'),(16,'SKY UP','U5','TIGER'),(17,'SMART WINGS','QS','TIGER'),(18,'LOT CHARTER','LO','AERO SERVICES'),(19,'TUI FLY NETHERLANDS','OR','TOP AVIATION'),(20,'CORENDON','XR','TIGER'),(21,'SKY LINE','QU','TIGER'),(22,'SMART WINGS','TV','TIGER'),(23,'SKY LINE','3E','TIGER'),(24,'HELLO JET','H3','TIGER'),(25,'MALTA MEDAIR','MT','INTERNATIONAL'),(26,'ALBA STAR','AP','INTERNATIONAL'),(27,'ALBA STAR','LAV','INTERNATIONAL'),(28,'SMART AVIATION','SME','SMART AVIATION'),(29,'ALKAN AIR','ALN','ALKAN AIR'),(30,'JET EXECUTIVE','JEI','AN AVIATION'),(31,'SKY LINE','RR','TIGER'),(32,'SKY UP','AMQ','TIGER'),(33,'HELLO JET','HLJ','TIGER'),(34,'PRIVATE JET','N505','PRIVATE'),(35,'ENTER AIR','ENT','TIGER'),(36,'SMART WINGS','TVS','TIGER'),(37,'SMART WINGS','TVP','TIGER'),(38,'SMART WINGS','TVQ','TIGER'),(39,'SMART WINGS','TVL','TIGER'),(40,'SKY LINE','URS','TIGER'),(41,'SKY UP','SQP','TIGER'),(42,'NEOS','NOS','TOP AVIATION'),(43,'EASY JET','EJU','TOP AVIATION'),(44,'EASY JET','EZY','TOP AVIATION'),(45,'EUROWINGS','EWG','INTERNATIONAL'),(46,'TRANSAVIA','TRA','LINK'),(47,'BRUSSELS AIRLINES','BEL','LINK'),(48,'EDELWEISS','EDW','INTERNATIONAL'),(49,'EUROWINGS DISCOVER','OCN','INTERNATIONAL'),(50,'TUI FLY','TUI','TOP AVIATION'),(51,'LUX AIR','LGL','TIGER'),(52,'TUI FLY BELGIUM','JAF','TOP AVIATION'),(53,'TUI AIRWAYS','TOM','TOP AVIATION'),(54,'FREE BIRD','FHY','TIGER'),(55,'LOT CHARTER','LOT','AERO SERVICES'),(56,'WIZZ AIR','WZZ','NEW STAR AVIATION'),(57,'CORENDON','CXI','TIGER'),(58,'MALTA MEDAIR','MMO','INTERNATIONAL'),(59,'CHAIR AIRLINES','GSW','TIGER');
-
-insert into public.agencies (agency_id, agency_name) values
-(1,'TIGER'),(2,'TOP AVIATION'),(3,'AIR CAIRO'),(4,'AERO SERVICES'),(5,'NEW STAR AVIATION'),(6,'INTERNATIONAL'),(7,'LINK'),(8,'ALKAN AIR'),(9,'SMART AVIATION'),(10,'AN AVIATION'),(11,'PRIVATE');
+-- Airlines are not seeded: manage them from the application.
+-- Agencies are not seeded: manage them from the application.
