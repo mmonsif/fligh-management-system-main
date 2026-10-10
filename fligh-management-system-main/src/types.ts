@@ -99,11 +99,63 @@ export type ActiveTab =
   | 'bulk-flights' 
   | 'statistics' 
   | 'airlines' 
-  | 'agencies';
+  | 'agencies'
+  | 'users'
+  | 'audit';
 
-export type UserRole = 'staff' | 'manager' | 'data-insert' | 'admin';
+export type UserRole = 'staff' | 'manager' | 'data-insert' | 'admin' | 'load-control' | 'ramp';
+
+export type LirStatus = 'draft' | 'planned' | 'actual' | 'approved';
+
+export const LIR_COMPARTMENT_NOS = [1, 2, 3, 4, 5] as const;
+export type LirCompartmentNo = (typeof LIR_COMPARTMENT_NOS)[number];
+
+export interface LoadingCompartment {
+  compartmentNo: LirCompartmentNo;
+  plannedBags: number | null;
+  actualBags: number | null;
+  /** Raw text the user typed, preserved when it is not a plain number (e.g. "remaining"). */
+  plannedText?: string;
+  actualText?: string;
+}
+
+export interface LoadingInstruction {
+  lirId: number;
+  flightId: number;
+  status: LirStatus;
+  compartments: LoadingCompartment[];
+  deviationNotes: string;
+  loadControlNotes: string;
+  plannedBy: string | null;
+  plannedAt: string | null;
+  actualBy: string | null;
+  actualAt: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  updatedAt: string;
+}
 
 export interface AuthUser {
   username: string;
   role: UserRole;
+  sessionId: string;
+}
+
+export interface AppUserAccount {
+  userId: number;
+  username: string;
+  role: UserRole;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface AuditEvent {
+  auditId: number;
+  occurredAt: string;
+  actorUsername: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  summary: string;
+  details: Record<string, unknown> | null;
 }

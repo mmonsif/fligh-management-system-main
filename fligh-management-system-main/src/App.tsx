@@ -14,12 +14,16 @@ import { FlightStatisticsView } from './components/Statistics/FlightStatisticsVi
 import { ManageAirlinesView } from './components/Airlines/ManageAirlinesView';
 import { ManageAgenciesView } from './components/Agencies/ManageAgenciesView';
 import { LoginPage } from './components/LoginPage';
+import { ManageUsersView } from './components/Users/ManageUsersView';
+import { AuditTrailView } from './components/Audit/AuditTrailView';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import {
   DatabaseSnapshot,
   loadDatabaseSnapshot,
+  recordAuditEvent,
   saveDatabaseSnapshot,
   subscribeToDatabaseChanges,
+  validateSession,
 } from './lib/database';
 
 const mergeFlightIntoSnapshot = (
@@ -90,9 +94,11 @@ const readLastActivity = (existing: string | null, now: number): number => {
 
 const roleTabs: Record<UserRole, ActiveTab[]> = {
   staff: ['manage-flights'],
-  manager: ['manage-flights', 'statistics'],
+  manager: ['manage-flights', 'statistics', 'audit'],
   'data-insert': ['manage-flights', 'bulk-flights', 'airlines', 'agencies'],
-  admin: ['manage-flights', 'bulk-flights', 'statistics', 'airlines', 'agencies'],
+  admin: ['manage-flights', 'bulk-flights', 'statistics', 'airlines', 'agencies', 'users', 'audit'],
+  'load-control': ['manage-flights'],
+  ramp: ['manage-flights'],
 };
 
 export default function App() {
@@ -112,7 +118,9 @@ export default function App() {
     }
 
     try {
-      return JSON.parse(saved);
+      const parsed = JSON.parse(saved) as AuthUser;
+      if (!parsed?.username || !parsed?.role || !parsed?.sessionId) return null;
+      return parsed;
     } catch {
       return null;
     }
@@ -209,6 +217,32 @@ export default function App() {
     if (user) {
       safeSetItem('fms_user', JSON.stringify(user));
     }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user?.sessionId || !isSupabaseConfigured) return undefined;
+
+    let isMounted = true;
+    validateSession(user.sessionId)
+      .then((valid) => {
+        if (!isMounted) return;
+        if (!valid) {
+          safeRemoveItem('fms_user');
+          safeRemoveItem(LAST_ACTIVITY_STORAGE_KEY);
+          setUser(null);
+          return;
+        }
+        if (valid.username !== user.username || valid.role !== user.role) {
+          setUser(valid);
+        }
+      })
+      .catch((error) => {
+        console.error('Session validation failed:', error);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [user]);
 
   useEffect(() => {
@@ -319,6 +353,9 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    if (user?.sessionId) {
+      void recordAuditEvent(user.sessionId, 'auth.logout', 'session', user.sessionId, 'Signed out');
+    }
     safeRemoveItem('fms_user');
     safeRemoveItem(LAST_ACTIVITY_STORAGE_KEY);
     setSessionExpired(false);
@@ -447,6 +484,16 @@ export default function App() {
     return <LoginPage onLogin={handleLogin} autoSignOutNotice={sessionExpired} />;
   }
 
+  const logAudit = (
+    action: string,
+    entityType: string,
+    entityId: string | number | null,
+    summary: string,
+    details?: Record<string, unknown>
+  ) => {
+    void recordAuditEvent(user.sessionId, action, entityType, entityId, summary, details);
+  };
+
   // Reset data handler
   const handleResetData = () => {
     setFlights(INITIAL_FLIGHTS);
@@ -481,10 +528,12 @@ export default function App() {
     };
 
     setFlights((prev) => [newFlight, ...prev]);
+    logAudit('flight.create', 'flight', nextId, `Added flight ${newFlight.inboundFlightNumber}/${newFlight.outboundFlightNumber}`);
   };
 
   // Update schedule
   const handleUpdateSchedule = (flightId: number, scheduleData: Partial<Flight>) => {
+    logAudit('flight.update_schedule', 'flight', flightId, `Updated schedule for flight ${flightId}`);
     setFlights((prev) =>
       prev.map((f) => {
         if (f.flightId !== flightId) return f;
@@ -506,6 +555,7 @@ export default function App() {
 
   // Update actuals
   const handleUpdateActuals = (flightId: number, actualsData: Partial<Flight>) => {
+    logAudit('flight.update_actuals', 'flight', flightId, `Updated actuals for flight ${flightId}`);
     setFlights((prev) =>
       prev.map((f) => {
         if (f.flightId !== flightId) return f;
@@ -527,6 +577,7 @@ export default function App() {
 
   // Update delays
   const handleUpdateDelays = (flightId: number, newDelays: Flight['delays']) => {
+    logAudit('flight.update_delays', 'flight', flightId, `Updated delays for flight ${flightId}`);
     const totalMinutes = newDelays.reduce((acc, d) => acc + (d.minutes || 0), 0);
     setFlights((prev) =>
       prev.map((f) => {
@@ -542,6 +593,7 @@ export default function App() {
 
   // Cancel flight
   const handleCancelFlight = (flightId: number, reason: string) => {
+    logAudit('flight.cancel', 'flight', flightId, `Canceled flight ${flightId}`, { reason });
     setFlights((prev) =>
       prev.map((f) => {
         if (f.flightId !== flightId) return f;
@@ -556,6 +608,7 @@ export default function App() {
 
   // Delete flight
   const handleDeleteFlight = async (flightId: number) => {
+    logAudit('flight.delete', 'flight', flightId, `Deleted flight ${flightId}`);
     setFlights((prev) => prev.filter((f) => f.flightId !== flightId));
 
     if (!isSupabaseConfigured || !supabase) return;
@@ -586,6 +639,7 @@ export default function App() {
   const handleCreateTemplate = (newTemplate: Omit<FlightTemplate, 'templateId'>) => {
     const nextId = templates.length > 0 ? Math.max(...templates.map((t) => t.templateId)) + 1 : 1;
     setTemplates((prev) => [...prev, { ...newTemplate, templateId: nextId }]);
+    logAudit('template.create', 'template', nextId, `Created template ${newTemplate.templateName}`);
   };
 
   const handleAddSchedule = (
@@ -604,6 +658,7 @@ export default function App() {
         };
       })
     );
+    logAudit('template.schedule', 'template', templateId, `Updated schedule for template ${templateId}`);
   };
 
   const handleGenerateFlights = (templateId: number, startDateStr: string, endDateStr: string): number => {
@@ -675,6 +730,13 @@ export default function App() {
 
     if (generated.length > 0) {
       setFlights((prev) => [...generated, ...prev]);
+      logAudit(
+        'flight.generate',
+        'template',
+        templateId,
+        `Generated ${generated.length} flights from template ${template.templateName}`,
+        { count: generated.length, startDateStr, endDateStr }
+      );
     }
 
     return generated.length;
@@ -684,6 +746,7 @@ export default function App() {
   const handleAddAirline = (name: string, iataCode?: string, country?: string) => {
     const nextId = airlines.length > 0 ? Math.max(...airlines.map((a) => a.airlineId)) + 1 : 1;
     setAirlines((prev) => [...prev, { airlineId: nextId, airlineName: name, iataCode, country }]);
+    logAudit('airline.create', 'airline', nextId, `Added airline ${name}`);
   };
 
   const handleUpdateAirline = (id: number, name: string, iataCode?: string, country?: string) => {
@@ -694,16 +757,20 @@ export default function App() {
     setFlights((prev) =>
       prev.map((f) => (f.airlineId === id ? { ...f, airlineName: name } : f))
     );
+    logAudit('airline.update', 'airline', id, `Updated airline ${name}`);
   };
 
   const handleDeleteAirline = (id: number) => {
+    const airline = airlines.find((a) => a.airlineId === id);
     setAirlines((prev) => prev.filter((a) => a.airlineId !== id));
+    logAudit('airline.delete', 'airline', id, `Deleted airline ${airline?.airlineName || id}`);
   };
 
   // Agency CRUD
   const handleAddAgency = (name: string, contactEmail?: string, phone?: string) => {
     const nextId = agencies.length > 0 ? Math.max(...agencies.map((g) => g.agencyId)) + 1 : 1;
     setAgencies((prev) => [...prev, { agencyId: nextId, agencyName: name, contactEmail, phone }]);
+    logAudit('agency.create', 'agency', nextId, `Added agency ${name}`);
   };
 
   const handleUpdateAgency = (id: number, name: string, contactEmail?: string, phone?: string) => {
@@ -713,10 +780,13 @@ export default function App() {
     setFlights((prev) =>
       prev.map((f) => (f.agencyId === id ? { ...f, agencyName: name } : f))
     );
+    logAudit('agency.update', 'agency', id, `Updated agency ${name}`);
   };
 
   const handleDeleteAgency = (id: number) => {
+    const agency = agencies.find((g) => g.agencyId === id);
     setAgencies((prev) => prev.filter((g) => g.agencyId !== id));
+    logAudit('agency.delete', 'agency', id, `Deleted agency ${agency?.agencyName || id}`);
   };
 
   return (
@@ -742,6 +812,7 @@ export default function App() {
             flights={flights}
             airlines={airlines}
             agencies={agencies}
+            user={user}
             canAddFlight={user.role === 'data-insert' || user.role === 'admin'}
             onAddFlight={handleAddFlight}
             onUpdateSchedule={handleUpdateSchedule}
@@ -785,6 +856,10 @@ export default function App() {
             onDeleteAgency={handleDeleteAgency}
           />
         )}
+
+        {activeTab === 'users' && <ManageUsersView sessionId={user.sessionId} />}
+
+        {activeTab === 'audit' && <AuditTrailView sessionId={user.sessionId} />}
       </main>
 
       {/* Footer - Full viewport width */}

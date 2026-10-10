@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ActiveTab, AuthUser } from '../types';
-import { Plane, BarChart3, Building2, Layers, Clock, LogOut } from 'lucide-react';
+import { Plane, BarChart3, Building2, Layers, LogOut, Shield, History } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -62,6 +62,16 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Agencies',
       icon: <Building2 className="w-4 h-4" />,
     },
+    {
+      id: 'users',
+      label: 'Users',
+      icon: <Shield className="w-4 h-4" />,
+    },
+    {
+      id: 'audit',
+      label: 'Audit Trail',
+      icon: <History className="w-4 h-4" />,
+    },
   ];
 
   return (
@@ -94,7 +104,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="font-bold text-sky-700">{utcTime || '12:00:00 UTC'}</span>
           </div>
             <div className="flex items-center gap-2">
-              <span className="hidden sm:inline text-xs font-semibold text-slate-600">{user.username} · {user.role === 'data-insert' ? 'Data Insert Staff' : user.role}</span>
+              <span className="hidden sm:inline text-xs font-semibold text-slate-600">{user.username} · {user.role === 'data-insert' ? 'Data Insert Staff' : user.role === 'load-control' ? 'Load Control' : user.role === 'ramp' ? 'Ramp' : user.role}</span>
               <button type="button" onClick={onLogout} title="Sign out" className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-900">
                 <LogOut className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Sign out</span>

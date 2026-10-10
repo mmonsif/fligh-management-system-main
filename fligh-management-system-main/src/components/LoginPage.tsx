@@ -1,7 +1,7 @@
-import React, { FormEvent, useState } from 'react';
+import React, { FormEvent, useEffect, useState } from 'react';
 import { AlertCircle, Clock, LockKeyhole, Plane, UserRound } from 'lucide-react';
-import { AuthUser, UserRole } from '../types';
-import { authenticateUser } from '../lib/database';
+import { AuthUser } from '../types';
+import { authenticateUser, bootstrapFirstAdmin, hasAppUsers } from '../lib/database';
 import { isSupabaseConfigured } from '../lib/supabase';
 
 interface LoginPageProps {
@@ -10,17 +10,38 @@ interface LoginPageProps {
   autoSignOutNotice?: boolean;
 }
 
-const demoAccounts: { role: UserRole; label: string; username: string; password: string }[] = [
-  { role: 'staff', label: 'Operations Staff', username: 'staff', password: 'staff123' },
-  { role: 'manager', label: 'Manager', username: 'manager', password: 'manager123' },
-  { role: 'data-insert', label: 'Data Insert Staff', username: 'data', password: 'data123' },
-  { role: 'admin', label: 'Administrator', username: 'admin', password: 'admin123' },
-];
-
 export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, autoSignOutNotice = false }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const [needsBootstrap, setNeedsBootstrap] = useState(false);
+  const [checkingUsers, setCheckingUsers] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!isSupabaseConfigured) {
+      setCheckingUsers(false);
+      return undefined;
+    }
+
+    hasAppUsers()
+      .then((exists) => {
+        if (isMounted) setNeedsBootstrap(!exists);
+      })
+      .catch((checkError) => {
+        console.error('Could not check existing users:', checkError);
+      })
+      .finally(() => {
+        if (isMounted) setCheckingUsers(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -31,8 +52,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, autoSignOutNotice
       return;
     }
 
+    if (needsBootstrap) {
+      if (password !== confirmPassword) {
+        setError('Passwords do not match.');
+        return;
+      }
+      if (password.length < 8) {
+        setError('Password must be at least 8 characters.');
+        return;
+      }
+    }
+
+    setSubmitting(true);
     try {
-      const account = await authenticateUser(username, password);
+      const account = needsBootstrap
+        ? await bootstrapFirstAdmin(username, password)
+        : await authenticateUser(username, password);
       if (!account) {
         setError('Invalid username or password.');
         return;
@@ -40,7 +75,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, autoSignOutNotice
       onLogin(account);
     } catch (loginError) {
       console.error('Database login failed:', loginError);
-      setError('Database login is not configured. Run supabase/schema.sql in the Supabase SQL Editor.');
+      const message = loginError instanceof Error ? loginError.message : '';
+      setError(message || 'Database login is not configured. Run supabase/schema.sql or supabase/user_audit.sql in the Supabase SQL Editor.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -54,7 +92,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, autoSignOutNotice
           </div>
           <p className="text-sky-100 text-xs font-bold uppercase tracking-[0.2em]">Station Ops</p>
           <h1 className="text-2xl font-black mt-2">Flight Management System</h1>
-          <p className="text-sky-100 text-sm mt-2">Sign in to access your operational workspace.</p>
+          <p className="text-sky-100 text-sm mt-2">
+            {needsBootstrap
+              ? 'Create the first administrator account to start using the system.'
+              : 'Sign in to access your operational workspace.'}
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="px-8 py-8 space-y-5">
@@ -72,37 +114,41 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, autoSignOutNotice
             </div>
           )}
 
-          <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Username</span>
-            <span className="mt-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-100">
-              <UserRound className="w-4 h-4 text-slate-400" />
-              <input value={username} onChange={(event) => setUsername(event.target.value)} className="w-full bg-transparent py-3 text-sm text-slate-900 outline-none" autoComplete="username" required />
-            </span>
-          </label>
+          {checkingUsers ? (
+            <p className="text-sm text-slate-500">Checking account setup…</p>
+          ) : (
+            <>
+              <label className="block">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Username</span>
+                <span className="mt-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-100">
+                  <UserRound className="w-4 h-4 text-slate-400" />
+                  <input value={username} onChange={(event) => setUsername(event.target.value)} className="w-full bg-transparent py-3 text-sm text-slate-900 outline-none" autoComplete="username" required minLength={3} />
+                </span>
+              </label>
 
-          <label className="block">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Password</span>
-            <span className="mt-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-100">
-              <LockKeyhole className="w-4 h-4 text-slate-400" />
-              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full bg-transparent py-3 text-sm text-slate-900 outline-none" autoComplete="current-password" required />
-            </span>
-          </label>
+              <label className="block">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Password</span>
+                <span className="mt-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-100">
+                  <LockKeyhole className="w-4 h-4 text-slate-400" />
+                  <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full bg-transparent py-3 text-sm text-slate-900 outline-none" autoComplete={needsBootstrap ? 'new-password' : 'current-password'} required />
+                </span>
+              </label>
 
-          <button type="submit" className="w-full rounded-xl bg-sky-600 py-3 text-sm font-bold text-white shadow-lg shadow-sky-600/20 transition hover:bg-sky-700">
-            Sign in
-          </button>
+              {needsBootstrap && (
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Confirm password</span>
+                  <span className="mt-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-100">
+                    <LockKeyhole className="w-4 h-4 text-slate-400" />
+                    <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="w-full bg-transparent py-3 text-sm text-slate-900 outline-none" autoComplete="new-password" required />
+                  </span>
+                </label>
+              )}
 
-          <div className="border-t border-slate-100 pt-5">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-3">Demo access</p>
-            <div className="grid grid-cols-2 gap-2">
-              {demoAccounts.map((account) => (
-                <button key={account.role} type="button" onClick={() => { setUsername(account.username); setPassword(account.password); setError(''); }} className="rounded-lg border border-slate-200 px-3 py-2 text-left text-xs text-slate-600 transition hover:border-sky-300 hover:bg-sky-50">
-                  <span className="block font-bold text-slate-800">{account.label}</span>
-                  <span>{account.username} / {account.password}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+              <button type="submit" disabled={submitting} className="w-full rounded-xl bg-sky-600 py-3 text-sm font-bold text-white shadow-lg shadow-sky-600/20 transition hover:bg-sky-700 disabled:opacity-60">
+                {submitting ? 'Please wait…' : needsBootstrap ? 'Create administrator' : 'Sign in'}
+              </button>
+            </>
+          )}
         </form>
       </section>
     </main>

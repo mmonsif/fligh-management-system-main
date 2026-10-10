@@ -1,4 +1,4 @@
-import { Flight, FlightStatus } from '../types';
+import { Flight, FlightStatus, LoadingInstruction, LirCompartmentNo } from '../types';
 
 export function calculateFlightStatus(
   staUtcStr: string,
@@ -683,6 +683,204 @@ export function exportFlightsToPdf(
     printWindow.print();
   };
   // Fallback for browsers that already fired onload before assignment.
+  setTimeout(() => {
+    try {
+      printWindow.print();
+    } catch {
+      // ignore
+    }
+  }, 300);
+}
+
+/**
+ * Renders an IATA-style Loading Instruction Report (LIR) in a print-ready window
+ * and opens the browser print dialog (users choose "Save as PDF").
+ *
+ * The layout follows the conventional IATA ground-handling loading instruction
+ * format: an identification header, the hold-by-hold loading table (planned vs.
+ * actual, NIL for empty holds), the loading totals and a signature block for the
+ * ramp / ground handler, load control and the aircraft commander. All figures are
+ * advisory to the load sheet; the document is a working turnaround record.
+ */
+export function exportLoadingInstructionToPdf(
+  flight: Flight,
+  instruction: LoadingInstruction,
+  flightDateLabel: string
+): void {
+  const comparator: Record<LirCompartmentNo, string> = {
+    1: 'FWD · Door 1',
+    2: 'FWD · Door 2',
+    3: 'AFT · Door 1',
+    4: 'AFT · Door 2',
+    5: 'BULK',
+  };
+  const order: LirCompartmentNo[] = [1, 2, 3, 4, 5];
+
+  const cell = (bags: number | null, text?: string | null) => {
+    if (text && text.trim()) return escapeXml(text.trim());
+    return bags === null || bags === 0 ? '<span class="nil">NIL</span>' : String(bags);
+  };
+
+  const rowsHtml = order
+    .map((no) => {
+      const hold = instruction.compartments.find((compartment) => compartment.compartmentNo === no);
+      const planned = hold?.plannedBags ?? null;
+      const actual = hold?.actualBags ?? null;
+      const diff = planned !== null && actual !== null && planned !== actual;
+      let remark = '';
+      if (diff) {
+        const delta = actual - planned;
+        remark = `${delta > 0 ? '+' : ''}${delta} vs plan`;
+      } else if (planned !== null && actual === null) {
+        remark = 'Awaiting actual';
+      }
+      return `<tr>
+        <td class="c"><strong>${no}</strong></td>
+        <td>${comparator[no]}</td>
+        <td class="c">${cell(planned, hold?.plannedText)}</td>
+        <td class="c">${cell(actual, hold?.actualText)}</td>
+        <td class="c ${diff ? 'warn' : ''}">${remark}</td>
+      </tr>`;
+    })
+    .join('');
+
+  const sum = (field: 'plannedBags' | 'actualBags') =>
+    instruction.compartments.reduce((acc, compartment) => acc + (compartment[field] ?? 0), 0);
+  const plannedTotal = sum('plannedBags');
+  const actualTotal = sum('actualBags');
+
+  const statusLabel =
+    instruction.status === 'approved'
+      ? 'APPROVED / COMPLETED'
+      : instruction.status.toUpperCase();
+
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    throw new Error('Popup blocked — allow popups to generate the loading instruction.');
+  }
+
+  printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Loading Instruction — ${escapeXml(flight.outboundFlightNumber)}</title>
+<style>
+  @page { size: A4 portrait; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Calibri, Arial, sans-serif; color: #0f172a; margin: 0; padding: 8px 10px; font-size: 11px; }
+  .doc { border: 2px solid #0f172a; }
+  .title { display: flex; justify-content: space-between; align-items: center; background: #0f5c8c; color: #fff; padding: 8px 12px; }
+  .title h1 { font-size: 16px; margin: 0; letter-spacing: 0.5px; }
+  .title .std { font-size: 10px; opacity: 0.9; }
+  .status { border: 1px solid #fff; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 2px solid #0f172a; }
+  .cell { padding: 5px 8px; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
+  .cell:nth-child(4n) { border-right: none; }
+  .cell .k { font-size: 8px; text-transform: uppercase; letter-spacing: 0.4px; color: #475569; font-weight: 700; }
+  .cell .v { font-size: 12px; font-weight: 700; margin-top: 1px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; margin: 12px 10px 4px; color: #0f5c8c; }
+  table { border-collapse: collapse; width: calc(100% - 20px); margin: 0 10px; }
+  th { background: #e2e8f0; border: 1px solid #94a3b8; padding: 4px 6px; font-size: 9px; text-transform: uppercase; letter-spacing: 0.3px; }
+  td { border: 1px solid #cbd5e1; padding: 5px 6px; }
+  td.c, th.c { text-align: center; }
+  td .nil { color: #94a3b8; font-style: italic; }
+  td.warn { color: #b45309; font-weight: 700; }
+  tfoot td { font-weight: 700; background: #f1f5f9; }
+  .notes { margin: 10px; }
+  .notes .box { border: 1px solid #cbd5e1; padding: 6px 8px; min-height: 34px; }
+  .notes .k { font-size: 8px; text-transform: uppercase; letter-spacing: 0.4px; color: #475569; font-weight: 700; margin-bottom: 3px; }
+  .signatures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 10px 10px; }
+  .sig { border: 1px solid #cbd5e1; padding: 6px 8px 24px; }
+  .sig .role { font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px; color: #0f5c8c; font-weight: 700; }
+  .sig .name { font-size: 9px; color: #475569; margin: 2px 0 18px; }
+  .sig .line { border-top: 1px solid #0f172a; padding-top: 2px; font-size: 8px; color: #475569; }
+  .foot { display: flex; justify-content: space-between; font-size: 8px; color: #64748b; padding: 6px 10px; border-top: 1px solid #cbd5e1; }
+  @media print { body { padding: 0; } .doc { border-width: 2px; } }
+</style>
+</head>
+<body>
+  <div class="doc">
+    <div class="title">
+      <div>
+        <h1>LOADING INSTRUCTION REPORT (LIR)</h1>
+        <div class="std">Ground Handling · Loading Instruction · All weights/bags per unit</div>
+      </div>
+      <div class="status">${escapeXml(statusLabel)}</div>
+    </div>
+
+    <div class="grid">
+      <div class="cell"><div class="k">Aircraft Type</div><div class="v">${escapeXml(flight.aircraftType || '—')}</div></div>
+      <div class="cell"><div class="k">Registration</div><div class="v">${escapeXml(flight.registration || '—')}</div></div>
+      <div class="cell"><div class="k">Inbound Flight</div><div class="v">${escapeXml(flight.inboundFlightNumber || '—')}</div></div>
+      <div class="cell"><div class="k">Outbound Flight</div><div class="v">${escapeXml(flight.outboundFlightNumber || '—')}</div></div>
+      <div class="cell"><div class="k">Origin</div><div class="v">${escapeXml(flight.origin || '—')}</div></div>
+      <div class="cell"><div class="k">Destination</div><div class="v">${escapeXml(flight.destination || '—')}${flight.via ? ` · via ${escapeXml(flight.via)}` : ''}${flight.finalDestination && flight.finalDestination !== flight.destination ? ` · ${escapeXml(flight.finalDestination)}` : ''}</div></div>
+      <div class="cell"><div class="k">Date (UTC)</div><div class="v">${escapeXml(flightDateLabel)}</div></div>
+      <div class="cell"><div class="k">STD (UTC)</div><div class="v">${escapeXml(formatUtcTimeOnly(flight.stdUtc))}</div></div>
+    </div>
+
+    <h2>Hold Loading Instruction</h2>
+    <table>
+      <thead>
+        <tr>
+          <th class="c" style="width:8%">Hold</th>
+          <th style="width:30%">Position</th>
+          <th class="c" style="width:16%">Planned Bags</th>
+          <th class="c" style="width:16%">Actual Bags</th>
+          <th class="c" style="width:30%">Remark</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot>
+        <tr>
+          <td class="c" colspan="2">TOTAL</td>
+          <td class="c">${plannedTotal}</td>
+          <td class="c">${actualTotal}</td>
+          <td class="c">Bags out: ${flight.numberOfBags ?? '—'}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="notes">
+      <div class="k">Ramp / Deviation Notes</div>
+      <div class="box">${escapeXml(instruction.deviationNotes || 'None recorded.')}</div>
+    </div>
+    <div class="notes">
+      <div class="k">Load Control Notes</div>
+      <div class="box">${escapeXml(instruction.loadControlNotes || 'None recorded.')}</div>
+    </div>
+
+    <div class="signatures">
+      <div class="sig">
+        <div class="role">Ramp / Ground Handler</div>
+        <div class="name">${escapeXml(instruction.actualBy || '')}</div>
+        <div class="line">Name &amp; Signature / Date-Time</div>
+      </div>
+      <div class="sig">
+        <div class="role">Load Control</div>
+        <div class="name">${escapeXml(instruction.plannedBy || '')}</div>
+        <div class="line">Name &amp; Signature / Date-Time</div>
+      </div>
+      <div class="sig">
+        <div class="role">Aircraft Commander</div>
+        <div class="name">&nbsp;</div>
+        <div class="line">Name &amp; Signature / Date-Time</div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <span>Generated ${escapeXml(new Date().toISOString().replace('T', ' ').slice(0, 16))} UTC</span>
+      <span>PIC/commander countersigns prior to departure. Advisory to load sheet.</span>
+    </div>
+  </div>
+</body>
+</html>`);
+
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.onload = () => {
+    printWindow.print();
+  };
   setTimeout(() => {
     try {
       printWindow.print();

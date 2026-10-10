@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { Flight, Airline, Agency, FlightStatus } from '../../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Flight, Airline, Agency, AuthUser, FlightStatus } from '../../types';
+import { LoadingInstructionTab, lirPermissions } from './LoadingInstructionTab';
 import {
   formatUtcDateTime,
   toUtcInputString,
@@ -108,6 +109,7 @@ interface ManageFlightsViewProps {
   flights: Flight[];
   airlines: Airline[];
   agencies: Agency[];
+  user: AuthUser;
   canAddFlight: boolean;
   onAddFlight: (flightData: Omit<Flight, 'flightId' | 'flightStatus' | 'delayMinutesTotal'>) => void;
   onUpdateSchedule: (flightId: number, scheduleData: Partial<Flight>) => void;
@@ -122,6 +124,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
   flights,
   airlines,
   agencies,
+  user,
   canAddFlight,
   onAddFlight,
   onUpdateSchedule,
@@ -133,7 +136,16 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
 }) => {
   // Selection
   const [selectedFlightId, setSelectedFlightId] = useState<number | null>(flights[0]?.flightId ?? null);
-  const [activeBottomTab, setActiveBottomTab] = useState<'schedule' | 'actuals' | 'delays'>('schedule');
+  const [activeBottomTab, setActiveBottomTab] = useState<'schedule' | 'actuals' | 'delays' | 'lir'>(
+    user.role === 'ramp' ? 'lir' : 'schedule'
+  );
+  const canSeeAllFlightTabs = lirPermissions(user.role).canSeeAllTabs;
+
+  useEffect(() => {
+    if (!canSeeAllFlightTabs && activeBottomTab !== 'lir') {
+      setActiveBottomTab('lir');
+    }
+  }, [activeBottomTab, canSeeAllFlightTabs]);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 
   // Filter state â€” defaults to the current UTC day so the list opens on today.
@@ -1340,7 +1352,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                       onClick={() => setSelectedFlightId(flight.flightId)}
                       onDoubleClick={() => {
                         setSelectedFlightId(flight.flightId);
-                        setActiveBottomTab('actuals');
+                        setActiveBottomTab(user.role === 'ramp' ? 'lir' : 'actuals');
                         setIsDetailsModalOpen(true);
                       }}
                       title="Double-click to open flight details"
@@ -1436,7 +1448,7 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
       {/* Flight details editor opens from a row double-click. */}
       {isDetailsModalOpen && selectedFlight && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-6xl max-h-[92vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_52px_rgba(15,23,42,0.35)] dark:border-white/10 dark:bg-slate-900">
+          <div className="w-full max-w-7xl max-h-[92vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_18px_52px_rgba(15,23,42,0.35)] dark:border-white/10 dark:bg-slate-900">
             <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-sky-900 to-slate-800 px-5 py-4 text-white dark:border-white/10">
               <div>
                 <h2 className="text-base font-bold">Flight Details</h2>
@@ -1468,10 +1480,12 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
               )}
             </div>
 
-            {/* Bottom Inspection & Edit Panel with 3 Tabs */}
+            {/* Bottom Inspection & Edit Panel with 4 Tabs */}
             <div className="glass-card overflow-hidden">
         {/* Tabs Bar */}
-        <div className="flex border-b border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.03] backdrop-blur-md">
+        <div className="flex flex-wrap border-b border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.03] backdrop-blur-md">
+          {canSeeAllFlightTabs && (
+            <>
           <button
             onClick={() => setActiveBottomTab('schedule')}
             className={`px-5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${
@@ -1501,6 +1515,18 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
             }`}
           >
             3. Flight Delays Accounting
+          </button>
+            </>
+          )}
+          <button
+            onClick={() => setActiveBottomTab('lir')}
+            className={`px-5 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+              activeBottomTab === 'lir'
+                ? 'border-sky-500 text-sky-700 dark:text-sky-300 bg-white dark:bg-white/5 shadow-inner'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/[0.02]'
+            }`}
+          >
+            {canSeeAllFlightTabs ? '4. Loading Instruction (LIR)' : 'Loading Instruction (LIR)'}
           </button>
         </div>
 
@@ -2058,6 +2084,15 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
               </button>
             </div>
           </div>
+        )}
+
+        {activeBottomTab === 'lir' && selectedFlight && (
+          <LoadingInstructionTab
+            flight={selectedFlight}
+            user={user}
+            disabled={isSelectedFlightCanceled}
+            onToast={showToast}
+          />
         )}
             </div>
           </div>

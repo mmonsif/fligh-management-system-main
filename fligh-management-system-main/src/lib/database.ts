@@ -1,4 +1,18 @@
-import { Agency, Airline, AuthUser, Flight, FlightTemplate, TemplateSchedule } from '../types';
+import {
+  Agency,
+  Airline,
+  AppUserAccount,
+  AuditEvent,
+  AuthUser,
+  Flight,
+  FlightTemplate,
+  LIR_COMPARTMENT_NOS,
+  LoadingCompartment,
+  LoadingInstruction,
+  LirStatus,
+  TemplateSchedule,
+  UserRole,
+} from '../types';
 import { isSupabaseConfigured, supabase } from './supabase';
 
 /**
@@ -222,7 +236,67 @@ export const loadDatabaseSnapshot = async (): Promise<DatabaseSnapshot | null> =
   return { flights, airlines, agencies, templates };
 };
 
-export const authenticateUser = async (username: string, password: string): Promise<{ username: string; role: AuthUser['role'] } | null> => {
+const mapAuthUser = (account: { username: string; role: string; session_id: string }): AuthUser => {
+  if (!account.session_id) {
+    throw new Error('Database login is not configured. Run supabase/user_audit.sql in the Supabase SQL Editor.');
+  }
+  return {
+    username: account.username,
+    role: account.role as UserRole,
+    sessionId: account.session_id,
+  };
+};
+
+const mapAppUser = (row: { user_id: number; username: string; role: string; is_active: boolean; created_at: string }): AppUserAccount => ({
+  userId: row.user_id,
+  username: row.username,
+  role: row.role as UserRole,
+  isActive: row.is_active,
+  createdAt: row.created_at,
+});
+
+const mapAuditEvent = (row: {
+  audit_id: number;
+  occurred_at: string;
+  actor_username: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  summary: string;
+  details: Record<string, unknown> | null;
+}): AuditEvent => ({
+  auditId: row.audit_id,
+  occurredAt: row.occurred_at,
+  actorUsername: row.actor_username,
+  action: row.action,
+  entityType: row.entity_type,
+  entityId: row.entity_id,
+  summary: row.summary,
+  details: row.details,
+});
+
+export const hasAppUsers = async (): Promise<boolean> => {
+  if (!isSupabaseConfigured || !supabase) return true;
+
+  const { data, error } = await supabase.rpc('has_app_users');
+  if (error) throw new Error(error.message);
+  return Boolean(data);
+};
+
+export const bootstrapFirstAdmin = async (username: string, password: string): Promise<AuthUser> => {
+  if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
+
+  const { data, error } = await supabase.rpc('bootstrap_first_admin', {
+    p_username: username.trim(),
+    p_password: password,
+  });
+  if (error) throw new Error(error.message);
+  const account = Array.isArray(data) ? data[0] : data;
+  if (!account) throw new Error('Could not create the first administrator.');
+  return mapAuthUser(account);
+};
+
+export const authenticateUser = async (username: string, password: string): Promise<AuthUser | null> => {
   if (!isSupabaseConfigured || !supabase) return null;
 
   const { data, error } = await supabase.rpc('authenticate_user', {
@@ -234,7 +308,100 @@ export const authenticateUser = async (username: string, password: string): Prom
   const account = Array.isArray(data) ? data[0] : data;
   if (!account) return null;
 
-  return { username: account.username, role: account.role as AuthUser['role'] };
+  return mapAuthUser(account);
+};
+
+export const validateSession = async (sessionId: string): Promise<AuthUser | null> => {
+  if (!isSupabaseConfigured || !supabase) return null;
+
+  const { data, error } = await supabase.rpc('validate_session', { p_session_id: sessionId });
+  if (error) throw new Error(error.message);
+  const account = Array.isArray(data) ? data[0] : data;
+  if (!account) return null;
+  return { username: account.username, role: account.role as UserRole, sessionId };
+};
+
+export const listAppUsers = async (sessionId: string): Promise<AppUserAccount[]> => {
+  if (!isSupabaseConfigured || !supabase) return [];
+
+  const { data, error } = await supabase.rpc('list_app_users', { p_session_id: sessionId });
+  if (error) throw new Error(error.message);
+  return (data || []).map(mapAppUser);
+};
+
+export const createAppUser = async (
+  sessionId: string,
+  username: string,
+  password: string,
+  role: UserRole
+): Promise<AppUserAccount> => {
+  if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
+
+  const { data, error } = await supabase.rpc('create_app_user', {
+    p_session_id: sessionId,
+    p_username: username.trim(),
+    p_password: password,
+    p_role: role,
+  });
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error('Could not create the user.');
+  return mapAppUser(row);
+};
+
+export const updateAppUser = async (
+  sessionId: string,
+  userId: number,
+  role: UserRole,
+  password: string,
+  isActive: boolean
+): Promise<AppUserAccount> => {
+  if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
+
+  const { data, error } = await supabase.rpc('update_app_user', {
+    p_session_id: sessionId,
+    p_user_id: userId,
+    p_role: role,
+    p_password: password,
+    p_is_active: isActive,
+  });
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error('Could not update the user.');
+  return mapAppUser(row);
+};
+
+export const recordAuditEvent = async (
+  sessionId: string,
+  action: string,
+  entityType: string,
+  entityId: string | number | null,
+  summary: string,
+  details?: Record<string, unknown>
+): Promise<void> => {
+  if (!isSupabaseConfigured || !supabase) return;
+
+  const { error } = await supabase.rpc('record_audit_event', {
+    p_session_id: sessionId,
+    p_action: action,
+    p_entity_type: entityType,
+    p_entity_id: entityId === null || entityId === undefined ? null : String(entityId),
+    p_summary: summary,
+    p_details: details ?? null,
+  });
+  if (error) console.error('Audit log failed:', error.message);
+};
+
+export const listAuditEvents = async (sessionId: string): Promise<AuditEvent[]> => {
+  if (!isSupabaseConfigured || !supabase) return [];
+
+  const { data, error } = await supabase.rpc('list_audit_events', {
+    p_session_id: sessionId,
+    p_limit: 250,
+    p_offset: 0,
+  });
+  if (error) throw new Error(error.message);
+  return (data || []).map(mapAuditEvent);
 };
 
 export const saveDatabaseSnapshot = async (snapshot: DatabaseSnapshot, previousSnapshot?: DatabaseSnapshot) => {
@@ -424,6 +591,258 @@ export const subscribeToDatabaseChanges = (onChange: (change: DatabaseChange) =>
     }
   });
 
+  return () => {
+    void supabase?.removeChannel(channel);
+  };
+};
+
+const LIR_STORAGE_KEY = 'fms_lirs';
+
+type DatabaseLir = {
+  lir_id: number;
+  flight_id: number;
+  status: LirStatus;
+  deviation_notes: string;
+  load_control_notes: string;
+  planned_by: string | null;
+  planned_at: string | null;
+  actual_by: string | null;
+  actual_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  updated_at: string;
+};
+
+type DatabaseLirHold = {
+  lir_id: number;
+  compartment_no: number;
+  planned_bags: number | null;
+  actual_bags: number | null;
+  planned_text?: string | null;
+  actual_text?: string | null;
+};
+
+const emptyCompartments = (): LoadingCompartment[] =>
+  LIR_COMPARTMENT_NOS.map((compartmentNo) => ({
+    compartmentNo,
+    plannedBags: null,
+    actualBags: null,
+    plannedText: '',
+    actualText: '',
+  }));
+
+const mergeCompartments = (holds: DatabaseLirHold[]): LoadingCompartment[] =>
+  emptyCompartments().map((compartment) => {
+    const hold = holds.find((row) => row.compartment_no === compartment.compartmentNo);
+    return {
+      ...compartment,
+      plannedBags: hold?.planned_bags ?? null,
+      actualBags: hold?.actual_bags ?? null,
+      plannedText: hold?.planned_text ?? '',
+      actualText: hold?.actual_text ?? '',
+    };
+  });
+
+const mapLoadingInstruction = (row: DatabaseLir, holds: DatabaseLirHold[]): LoadingInstruction => ({
+  lirId: row.lir_id,
+  flightId: row.flight_id,
+  status: row.status,
+  compartments: mergeCompartments(holds),
+  deviationNotes: row.deviation_notes || '',
+  loadControlNotes: row.load_control_notes || '',
+  plannedBy: row.planned_by,
+  plannedAt: row.planned_at,
+  actualBy: row.actual_by,
+  actualAt: row.actual_at,
+  approvedBy: row.approved_by,
+  approvedAt: row.approved_at,
+  updatedAt: row.updated_at,
+});
+
+const readLocalLirs = (): LoadingInstruction[] => {
+  try {
+    const saved = localStorage.getItem(LIR_STORAGE_KEY);
+    return saved ? (JSON.parse(saved) as LoadingInstruction[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeLocalLirs = (rows: LoadingInstruction[]) => {
+  try {
+    localStorage.setItem(LIR_STORAGE_KEY, JSON.stringify(rows));
+  } catch {
+    // ignore
+  }
+};
+
+export const createDraftLoadingInstruction = (flightId: number): LoadingInstruction => ({
+  lirId: 0,
+  flightId,
+  status: 'draft',
+  compartments: emptyCompartments(),
+  deviationNotes: '',
+  loadControlNotes: '',
+  plannedBy: null,
+  plannedAt: null,
+  actualBy: null,
+  actualAt: null,
+  approvedBy: null,
+  approvedAt: null,
+  updatedAt: new Date().toISOString(),
+});
+
+export const loadLoadingInstruction = async (flightId: number): Promise<LoadingInstruction> => {
+  if (!isSupabaseConfigured || !supabase) {
+    return readLocalLirs().find((row) => row.flightId === flightId) ?? createDraftLoadingInstruction(flightId);
+  }
+
+  const headerResult = await supabase
+    .from('loading_instructions')
+    .select('*')
+    .eq('flight_id', flightId)
+    .maybeSingle();
+  if (headerResult.error) throw new Error(headerResult.error.message);
+  if (!headerResult.data) return createDraftLoadingInstruction(flightId);
+
+  const holdsResult = await supabase
+    .from('loading_instruction_holds')
+    .select('*')
+    .eq('lir_id', headerResult.data.lir_id)
+    .order('compartment_no');
+  if (holdsResult.error) throw new Error(holdsResult.error.message);
+
+  return mapLoadingInstruction(headerResult.data as DatabaseLir, (holdsResult.data || []) as DatabaseLirHold[]);
+};
+
+export const saveLoadingInstruction = async (instruction: LoadingInstruction): Promise<LoadingInstruction> => {
+  const now = new Date().toISOString();
+  const compartments = mergeCompartments(
+    instruction.compartments.map((compartment) => ({
+      lir_id: instruction.lirId,
+      compartment_no: compartment.compartmentNo,
+      planned_bags: compartment.plannedBags,
+      actual_bags: compartment.actualBags,
+      planned_text: compartment.plannedText ?? '',
+      actual_text: compartment.actualText ?? '',
+    }))
+  );
+
+  if (!isSupabaseConfigured || !supabase) {
+    const next: LoadingInstruction = {
+      ...instruction,
+      lirId: instruction.lirId || instruction.flightId,
+      compartments,
+      updatedAt: now,
+    };
+    const others = readLocalLirs().filter((row) => row.flightId !== instruction.flightId);
+    writeLocalLirs([...others, next]);
+    return next;
+  }
+
+  const headerPayload = {
+    flight_id: instruction.flightId,
+    status: instruction.status,
+    deviation_notes: instruction.deviationNotes,
+    load_control_notes: instruction.loadControlNotes,
+    planned_by: instruction.plannedBy,
+    planned_at: instruction.plannedAt,
+    actual_by: instruction.actualBy,
+    actual_at: instruction.actualAt,
+    approved_by: instruction.approvedBy,
+    approved_at: instruction.approvedAt,
+    updated_at: now,
+  };
+
+  const headerResult = instruction.lirId
+    ? await supabase
+        .from('loading_instructions')
+        .update(headerPayload)
+        .eq('lir_id', instruction.lirId)
+        .select('*')
+        .single()
+    : await supabase
+        .from('loading_instructions')
+        .upsert(headerPayload, { onConflict: 'flight_id' })
+        .select('*')
+        .single();
+
+  if (headerResult.error) throw new Error(headerResult.error.message);
+  const savedHeader = headerResult.data as DatabaseLir;
+
+  const holdRows = compartments.map((compartment) => ({
+    lir_id: savedHeader.lir_id,
+    compartment_no: compartment.compartmentNo,
+    planned_bags: compartment.plannedBags,
+    actual_bags: compartment.actualBags,
+    planned_text: compartment.plannedText ?? '',
+    actual_text: compartment.actualText ?? '',
+  }));
+
+  let holdsResult = await supabase
+    .from('loading_instruction_holds')
+    .upsert(holdRows, { onConflict: 'lir_id,compartment_no' })
+    .select('*');
+
+  // If the database predates the free-text migration the upsert is rejected for the
+  // unknown columns. When the user actually typed free text we must NOT drop it
+  // silently (that is what made "remaining" come back as NIL), so surface a clear,
+  // actionable error. If there is no text to save, fall back to the numeric-only
+  // write so ordinary saves keep working on an unmigrated database.
+  const hasFreeText = compartments.some(
+    (compartment) =>
+      Boolean(compartment.plannedText && compartment.plannedText.trim()) ||
+      Boolean(compartment.actualText && compartment.actualText.trim())
+  );
+  if (holdsResult.error && /planned_text|actual_text|column .* does not exist/i.test(holdsResult.error.message)) {
+    if (hasFreeText) {
+      throw new Error(
+        'This database is missing the free-text hold columns. Run supabase/loading_instructions.sql ' +
+          '(adds planned_text / actual_text to loading_instruction_holds) to save text such as "remaining".'
+      );
+    }
+    const numericRows = compartments.map((compartment) => ({
+      lir_id: savedHeader.lir_id,
+      compartment_no: compartment.compartmentNo,
+      planned_bags: compartment.plannedBags,
+      actual_bags: compartment.actualBags,
+    }));
+    holdsResult = await supabase
+      .from('loading_instruction_holds')
+      .upsert(numericRows, { onConflict: 'lir_id,compartment_no' })
+      .select('*');
+  }
+  if (holdsResult.error) throw new Error(holdsResult.error.message);
+
+  return mapLoadingInstruction(savedHeader, (holdsResult.data || holdRows) as DatabaseLirHold[]);
+};
+
+export const subscribeToLoadingInstruction = (
+  flightId: number,
+  onChange: (instruction: LoadingInstruction) => void
+) => {
+  if (!isSupabaseConfigured || !supabase) return () => undefined;
+
+  const reload = () => {
+    void loadLoadingInstruction(flightId)
+      .then(onChange)
+      .catch((error) => console.error('LIR reload failed:', error));
+  };
+
+  const channel = supabase
+    .channel(`fms-lir-${flightId}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'loading_instructions', filter: `flight_id=eq.${flightId}` },
+      reload
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'loading_instruction_holds' },
+      reload
+    );
+
+  void channel.subscribe();
   return () => {
     void supabase?.removeChannel(channel);
   };
