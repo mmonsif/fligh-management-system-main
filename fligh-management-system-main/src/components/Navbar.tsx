@@ -40,7 +40,12 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'manage-flights',
       label: 'Flight Operations',
       icon: <Plane className="w-4 h-4" />,
-      badge: flightCount,
+      // The total number of recorded flights is sensitive: admins, managers
+      // and data-insert staff only.
+      badge:
+        user.role === 'admin' || user.role === 'manager' || user.role === 'data-insert'
+          ? flightCount
+          : undefined,
     },
     {
       id: 'bulk-flights',
@@ -104,7 +109,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="font-bold text-sky-700">{utcTime || '12:00:00 UTC'}</span>
           </div>
             <div className="flex items-center gap-2">
-              <span className="hidden sm:inline text-xs font-semibold text-slate-600">{user.username} · {user.role === 'data-insert' ? 'Data Insert Staff' : user.role === 'load-control' ? 'Load Control' : user.role === 'ramp' ? 'Ramp' : user.role}</span>
+              <span className="hidden sm:inline text-xs font-semibold text-slate-600">{user.username} · {user.role === 'data-insert' ? 'Data Insert Staff' : user.role === 'load-control' ? 'Load Control' : user.role === 'ramp' ? 'Ramp' : user.role === 'manager' ? 'Manager' : user.role === 'admin' ? 'Administrator' : user.role}</span>
               <button type="button" onClick={onLogout} title="Sign out" className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-900">
                 <LogOut className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Sign out</span>

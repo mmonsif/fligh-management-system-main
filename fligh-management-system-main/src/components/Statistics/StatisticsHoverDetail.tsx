@@ -2,6 +2,7 @@ import React, { useState, useRef, useLayoutEffect, useEffect, useCallback, useId
 import { createPortal } from 'react-dom';
 import { Flight } from '../../types';
 import { formatUtcDateTime, getPassengerTotal } from '../../utils/flightUtils';
+import { getDelayCodeInfo } from '../../data/iataDelayCodes';
 import { X, ArrowUpRight, Plane } from 'lucide-react';
 
 /** A single labelled metric row shown inside a hover popover. */
@@ -10,6 +11,11 @@ export interface HoverMetric {
   value: string;
   tone?: 'default' | 'sky' | 'emerald' | 'amber' | 'rose' | 'indigo';
 }
+
+/** `formatUtcDateTime` renders `dd/mm/yyyy HH:MM`; these helpers pull the two
+ * halves out of it (a naive slice would cut the time at the wrong offset). */
+const utcDatePart = (value: string) => value.slice(0, 10);
+const utcTimePart = (value: string) => value.slice(11) || '—';
 
 const toneClass: Record<NonNullable<HoverMetric['tone']>, string> = {
   default: 'text-slate-800 dark:text-slate-200',
@@ -99,7 +105,7 @@ export const HoverDetail: React.FC<HoverDetailProps> = ({
   const open = hovered || pinned;
   const hasPopover = Boolean(metrics?.length || flights.length);
   const preview = flights.slice(0, previewLimit);
-  const panelWidth = 340;
+  const panelWidth = 430;
 
   /** Vertical gap between the anchor and its panel, in pixels. */
   const BRIDGE = 6;
@@ -293,29 +299,53 @@ export const HoverDetail: React.FC<HoverDetailProps> = ({
                 </span>
                 <span className="font-mono">{flights.length}</span>
               </div>
+              {/* STA / STD / ATA / ATD are aligned in the same column positions on
+                  every line so the times of consecutive flights can be compared. */}
+              <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,minmax(0,62px))] gap-1 px-1.5 pb-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                <span>Flight</span>
+                <span className="text-right">STA</span>
+                <span className="text-right">STD</span>
+                <span className="text-right">ATA</span>
+                <span className="text-right">ATD</span>
+              </div>
               <ul className="space-y-0.5">
                 {preview.map((f) => {
                   const note = flightNote?.(f);
+                  // Scheduled times are usually on different dates than the actuals,
+                  // so the date is shortened to dd/mm on the scheduled pair.
+                  const sta = formatUtcDateTime(f.staUtc);
+                  const std = formatUtcDateTime(f.stdUtc);
                   return (
                     <li
                       key={f.flightId}
-                      className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 font-mono text-[10px] odd:bg-slate-50 dark:odd:bg-white/5"
+                      className="grid grid-cols-[minmax(0,1fr)_repeat(4,minmax(0,62px))] items-center gap-1 rounded-md px-1.5 py-1 font-mono text-[10px] odd:bg-slate-50 dark:odd:bg-white/5"
                     >
-                      <span className="truncate font-bold text-slate-800 dark:text-slate-200">
-                        {f.inboundFlightNumber}
-                        <span className="ml-1 font-sans font-normal text-slate-500 dark:text-slate-400">
-                          {f.airlineName}
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate font-bold text-slate-800 dark:text-slate-200">
+                          {f.inboundFlightNumber}
+                          <span className="ml-1 font-sans font-normal text-slate-500 dark:text-slate-400">
+                            {f.airlineName}
+                          </span>
                         </span>
-                      </span>
-                      <span className="flex shrink-0 items-center gap-1.5">
                         {note && (
-                          <span className="rounded bg-amber-100 px-1 font-bold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                          <span className="shrink-0 rounded bg-amber-100 px-1 font-bold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                             {note}
                           </span>
                         )}
-                        <span className="text-slate-500 dark:text-slate-400">
-                          {formatUtcDateTime(f.staUtc).slice(0, 10)}
-                        </span>
+                      </span>
+                      <span className="text-right text-slate-500 dark:text-slate-400" title={`STA ${sta} UTC`}>
+                        {utcDatePart(sta)}
+                        <span className="block text-[10px] font-semibold text-slate-700 dark:text-slate-300">{utcTimePart(sta)}</span>
+                      </span>
+                      <span className="text-right text-slate-500 dark:text-slate-400" title={`STD ${std} UTC`}>
+                        {utcDatePart(std)}
+                        <span className="block text-[10px] font-semibold text-slate-700 dark:text-slate-300">{utcTimePart(std)}</span>
+                      </span>
+                      <span className="text-right text-sky-700 dark:text-sky-300" title={`ATA ${f.ataUtc ? `${formatUtcDateTime(f.ataUtc)} UTC` : 'not recorded'}`}>
+                        {f.ataUtc ? utcTimePart(formatUtcDateTime(f.ataUtc)) : '—'}
+                      </span>
+                      <span className="text-right text-indigo-700 dark:text-indigo-300" title={`ATD ${f.atdUtc ? `${formatUtcDateTime(f.atdUtc)} UTC` : 'not recorded'}`}>
+                        {f.atdUtc ? utcTimePart(formatUtcDateTime(f.atdUtc)) : '—'}
                       </span>
                     </li>
                   );
@@ -381,6 +411,77 @@ export const HoverDetail: React.FC<HoverDetailProps> = ({
   );
 };
 
+interface DelayCodeTagProps {
+  /** The IATA code as recorded on the flight, e.g. "89". */
+  code: string;
+  /** Optional minutes shown next to the code inside the tag. */
+  minutes?: number;
+  /** Rendering variant: a chip (default) or plain amber text. */
+  variant?: 'chip' | 'text';
+  className?: string;
+}
+
+/**
+ * A delay code shown inside any popup / report. Pointing at it writes the IATA
+ * meaning next to the code ("89 · Fuelling"), and a tooltip repeats the full
+ * category + description. The tooltip lives in a portal so a scrolling table
+ * cell (`overflow-auto`) can never clip it.
+ */
+export const DelayCodeTag: React.FC<DelayCodeTagProps> = ({ code, minutes, variant = 'chip', className = '' }) => {
+  const tagRef = useRef<HTMLSpanElement | null>(null);
+  const [tipPos, setTipPos] = useState<{ top: number; left: number; below: boolean } | null>(null);
+  const info = getDelayCodeInfo(code);
+  const meaning = info?.description || 'Custom / non-standard station delay code';
+  const category = info?.category || 'Station Delay';
+
+  const showTip = () => {
+    const rect = tagRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setTipPos({ top: rect.bottom + 6, left: rect.left, below: true });
+  };
+  const hideTip = () => setTipPos(null);
+
+  const isText = variant === 'text';
+
+  return (
+    <span
+      ref={tagRef}
+      onMouseEnter={showTip}
+      onMouseLeave={hideTip}
+      onFocus={showTip}
+      onBlur={hideTip}
+      tabIndex={0}
+      aria-label={`Delay code ${code}: ${category} — ${meaning}`}
+      className={`cursor-help ${isText ? 'text-amber-700 dark:text-amber-400 ' : ''}${className}`}
+    >
+      <span
+        className={
+          isText
+            ? 'font-mono font-bold'
+            : 'rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 font-bold text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300'
+        }
+      >
+        {code}
+        {minutes ? ` · ${minutes}m` : ''}
+      </span>
+      {tipPos &&
+        createPortal(
+          <div
+            role="tooltip"
+            style={{ top: tipPos.top, left: tipPos.left }}
+            className="pointer-events-none fixed z-[400] max-w-[260px] rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-left text-[10px] shadow-xl dark:border-amber-500/30 dark:bg-slate-900"
+          >
+            <div className="font-mono font-black text-amber-700 dark:text-amber-300">
+              {code} · {category}
+            </div>
+            <div className="mt-0.5 font-sans text-slate-700 dark:text-slate-300">{meaning}</div>
+          </div>,
+          document.body
+        )}
+    </span>
+  );
+};
+
 interface StatisticsDetailDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -388,6 +489,11 @@ interface StatisticsDetailDrawerProps {
   subtitle?: string;
   flights: Flight[];
   emptyMessage?: string;
+  /**
+   * Renders the "worst single delay" report: the very same table format, but
+   * restricted to the one worst-delayed flight (plus its headline summary).
+   */
+  singleDelay?: boolean;
 }
 
 /**
@@ -401,7 +507,9 @@ export const StatisticsDetailDrawer: React.FC<StatisticsDetailDrawerProps> = ({
   subtitle,
   flights,
   emptyMessage = 'No flights contribute to this metric.',
+  singleDelay = false,
 }) => {
+  const worstFlight = singleDelay ? flights[0] : undefined;
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e: KeyboardEvent) => {
@@ -432,6 +540,26 @@ export const StatisticsDetailDrawer: React.FC<StatisticsDetailDrawerProps> = ({
           </button>
         </div>
 
+        {worstFlight && (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 border-b border-slate-200 px-4 py-2.5 text-[11px] dark:border-white/10 sm:grid-cols-4">
+            {[
+              { label: 'Flight', value: worstFlight.inboundFlightNumber },
+              { label: 'Airline', value: worstFlight.airlineName },
+              { label: 'Agency', value: worstFlight.agencyName },
+              { label: 'Route', value: `${worstFlight.origin || '—'} → ${worstFlight.finalDestination || worstFlight.destination || '—'}` },
+              { label: 'STA', value: formatUtcDateTime(worstFlight.staUtc) },
+              { label: 'STD', value: formatUtcDateTime(worstFlight.stdUtc) },
+              { label: 'Aircraft', value: worstFlight.aircraftType },
+              { label: 'Delay', value: worstFlight.delayMinutesTotal ? `${worstFlight.delayMinutesTotal} min` : '—' },
+            ].map((item) => (
+              <div key={item.label} className="flex items-baseline justify-between gap-2">
+                <span className="text-slate-500 dark:text-slate-400">{item.label}</span>
+                <span className="truncate font-mono font-bold text-slate-800 dark:text-slate-200">{item.value || '—'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="overflow-auto">
           <table className="w-full text-left text-xs">
             <thead className="sticky top-0 bg-slate-100/95 text-slate-700 backdrop-blur-md dark:bg-white/10 dark:text-slate-300">
@@ -441,6 +569,9 @@ export const StatisticsDetailDrawer: React.FC<StatisticsDetailDrawerProps> = ({
                 <th className="p-2.5">Airline</th>
                 <th className="p-2.5">Agency</th>
                 <th className="p-2.5">STA (UTC)</th>
+                <th className="p-2.5">STD (UTC)</th>
+                <th className="p-2.5">ATA (UTC)</th>
+                <th className="p-2.5">ATD (UTC)</th>
                 <th className="p-2.5">Aircraft</th>
                 <th className="p-2.5 text-right">Delay</th>
                 <th className="p-2.5 text-right">Pax</th>
@@ -451,7 +582,7 @@ export const StatisticsDetailDrawer: React.FC<StatisticsDetailDrawerProps> = ({
             <tbody className="divide-y divide-slate-100 font-mono dark:divide-white/5">
               {flights.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-10 text-center text-xs text-slate-500 dark:text-slate-400">
+                  <td colSpan={13} className="py-10 text-center text-xs text-slate-500 dark:text-slate-400">
                     {emptyMessage}
                   </td>
                 </tr>
@@ -463,6 +594,9 @@ export const StatisticsDetailDrawer: React.FC<StatisticsDetailDrawerProps> = ({
                     <td className="p-2.5 font-sans text-slate-800 dark:text-slate-200">{f.airlineName}</td>
                     <td className="p-2.5 font-sans text-slate-500 dark:text-slate-400">{f.agencyName}</td>
                     <td className="p-2.5 text-slate-700 dark:text-slate-300">{formatUtcDateTime(f.staUtc)}</td>
+                    <td className="p-2.5 text-slate-700 dark:text-slate-300">{formatUtcDateTime(f.stdUtc)}</td>
+                    <td className="p-2.5 text-sky-700 dark:text-sky-300">{f.ataUtc ? formatUtcDateTime(f.ataUtc) : '—'}</td>
+                    <td className="p-2.5 text-indigo-700 dark:text-indigo-300">{f.atdUtc ? formatUtcDateTime(f.atdUtc) : '—'}</td>
                     <td className="p-2.5 text-slate-600 dark:text-slate-300">{f.aircraftType}</td>
                     <td className="p-2.5 text-right font-bold text-amber-700 dark:text-amber-400">
                       {f.delayMinutesTotal ? `${f.delayMinutesTotal}m` : '-'}
@@ -476,13 +610,12 @@ export const StatisticsDetailDrawer: React.FC<StatisticsDetailDrawerProps> = ({
                           <span className="text-slate-400">—</span>
                         ) : (
                           f.delays.map((d, idx) => (
-                            <span
+                            <DelayCodeTag
                               key={`${d.code}-${idx}`}
-                              className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
-                            >
-                              {d.code}
-                              {d.minutes ? ` · ${d.minutes}m` : ''}
-                            </span>
+                              code={d.code}
+                              minutes={d.minutes}
+                              className="text-[10px]"
+                            />
                           ))
                         )}
                       </span>

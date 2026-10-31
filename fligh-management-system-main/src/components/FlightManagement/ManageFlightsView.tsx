@@ -19,6 +19,7 @@ import {
 import { CancelFlightModal } from './CancelFlightModal';
 import { TripFileModal } from './TripFileModal';
 import { IataDelayPickerModal } from '../Common/IataDelayPickerModal';
+import { DelayCodeTag } from '../Statistics/StatisticsHoverDetail';
 import { TimeInput, UtcDateTimeInput } from '../Common/TimeInput';
 import {
   Plus,
@@ -1424,7 +1425,17 @@ export const ManageFlightsView: React.FC<ManageFlightsViewProps> = ({
                         </div>
                       </td>
                       <td className="px-3.5 py-2.5 font-mono text-[11px] text-amber-700 dark:text-amber-300 font-semibold whitespace-nowrap max-w-[200px] truncate">
-                        {delayString}
+                        {flight.delays.length === 0
+                          ? delayString
+                          : flight.delays.map((d, idx) => (
+                              <React.Fragment key={`${d.code}-${idx}`}>
+                                {idx > 0 && '; '}
+                                <span className="inline-flex items-center gap-0.5">
+                                  <DelayCodeTag code={d.code} variant="text" />
+                                  <span>:{formatMinutesToHHMM(d.minutes)}</span>
+                                </span>
+                              </React.Fragment>
+                            ))}
                       </td>
                       <td className="px-3.5 py-2.5 text-right font-mono text-slate-700 dark:text-slate-300">{flight.adultPax ?? '-'}</td>
                       <td className="px-3.5 py-2.5 text-right font-mono text-slate-700 dark:text-slate-300">{flight.childPax ?? '-'}</td>

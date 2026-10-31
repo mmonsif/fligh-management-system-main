@@ -94,7 +94,9 @@ const readLastActivity = (existing: string | null, now: number): number => {
 
 const roleTabs: Record<UserRole, ActiveTab[]> = {
   staff: ['manage-flights'],
-  manager: ['manage-flights', 'statistics', 'audit'],
+  // Managers are read-only and only see statistics & reports. The audit trail is
+  // restricted to administrators.
+  manager: ['manage-flights', 'statistics'],
   'data-insert': ['manage-flights', 'bulk-flights', 'airlines', 'agencies'],
   admin: ['manage-flights', 'bulk-flights', 'statistics', 'airlines', 'agencies', 'users', 'audit'],
   'load-control': ['manage-flights'],
@@ -859,7 +861,7 @@ export default function App() {
 
         {activeTab === 'users' && <ManageUsersView sessionId={user.sessionId} />}
 
-        {activeTab === 'audit' && <AuditTrailView sessionId={user.sessionId} />}
+        {activeTab === 'audit' && user.role === 'admin' && <AuditTrailView sessionId={user.sessionId} />}
       </main>
 
       {/* Footer - Full viewport width */}

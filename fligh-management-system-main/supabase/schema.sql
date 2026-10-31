@@ -382,9 +382,9 @@ begin
     where s.session_id = p_session_id
       and s.expires_at > now()
       and u.is_active = true
-      and u.role in ('admin', 'manager')
+      and u.role = 'admin'
   ) then
-    raise exception 'Administrator or manager access is required.';
+    raise exception 'Administrator access is required.';
   end if;
 
   return query

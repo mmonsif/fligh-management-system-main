@@ -46,21 +46,21 @@ export const IATA_DELAY_CODES: IataDelayCode[] = [
   { code: '46', category: 'Technical', description: 'Aircraft change for technical reasons' },
   { code: '47', category: 'Technical', description: 'Standby aircraft unavailable for technical reasons' },
   { code: '48', category: 'Technical', description: 'Scheduled cabin configuration adjustment' },
-  { code: '51', category: 'Damage and Failure', description: 'Damage during flight operations' },
-  { code: '52', category: 'Damage and Failure', description: 'Damage during ground operations' },
-  { code: '55', category: 'Damage and Failure', description: 'Departure control, check-in, load control, or baggage system error' },
-  { code: '56', category: 'Damage and Failure', description: 'Cargo preparation or documentation system' },
-  { code: '57', category: 'Damage and Failure', description: 'Flight plans' },
-  { code: '58', category: 'Damage and Failure', description: 'Other computer systems' },
-  { code: '61', category: 'Operation', description: 'Flight plan or flight documentation late or changed' },
-  { code: '62', category: 'Operation', description: 'Operational requirements, fuel, or load alteration' },
-  { code: '63', category: 'Operation', description: 'Late crew boarding or departure procedures' },
-  { code: '64', category: 'Operation', description: 'Flight deck crew shortage or rest' },
-  { code: '65', category: 'Operation', description: 'Flight deck crew special request or error' },
-  { code: '66', category: 'Operation', description: 'Late cabin crew boarding or departure procedures' },
-  { code: '67', category: 'Operation', description: 'Cabin crew shortage' },
-  { code: '68', category: 'Operation', description: 'Cabin crew error or special request' },
-  { code: '69', category: 'Operation', description: 'Captain request for security check' },
+  { code: '51', category: 'Damage to Aircraft & EDP/Automated Equipment Failure', description: 'Damage during flight operations' },
+  { code: '52', category: 'Damage to Aircraft & EDP/Automated Equipment Failure', description: 'Damage during ground operations' },
+  { code: '55', category: 'Damage to Aircraft & EDP/Automated Equipment Failure',description: 'Departure control, check-in, load control, or baggage system error' },
+  { code: '56', category: 'Damage to Aircraft & EDP/Automated Equipment Failure', description: 'Cargo preparation or documentation system' },
+  { code: '57', category: 'Damage to Aircraft & EDP/Automated Equipment Failure', description:'Flight plans' },
+  { code: '58', category: 'Damage to Aircraft & EDP/Automated Equipment Failure', description: 'Other computer systems' },
+  { code: '61', category: 'Flight Operations and Crewing', description: 'Flight plan or flight documentation late or changed' },
+  { code: '62', category: 'Flight Operations and Crewing', description: 'Operational requirements, fuel, or load alteration' },
+  { code: '63', category: 'Flight Operations and Crewing', description: 'Late crew boarding or departure procedures' },
+  { code: '64', category: 'Flight Operations and Crewing', description: 'Flight deck crew shortage or rest' },
+  { code: '65', category: 'Flight Operations and Crewing', description: 'Flight deck crew special request or error' },
+  { code: '66', category: 'Flight Operations and Crewing', description: 'Late cabin crew boarding or departure procedures' },
+  { code: '67', category: 'Flight Operations and Crewing', description: 'Cabin crew shortage' },
+  { code: '68', category: 'Flight Operations and Crewing', description: 'Cabin crew error or special request' },
+  { code: '69', category: 'Flight Operations and Crewing', description: 'Captain request for security check' },
   { code: '71', category: 'Weather', description: 'Departure station weather' },
   { code: '72', category: 'Weather', description: 'Destination station weather' },
   { code: '73', category: 'Weather', description: 'En-route or alternate weather' },
@@ -71,17 +71,17 @@ export const IATA_DELAY_CODES: IataDelayCode[] = [
   { code: '82', category: 'Air Traffic Control', description: 'ATC staff shortage or equipment failure en-route' },
   { code: '83', category: 'Air Traffic Control', description: 'ATC restriction at destination' },
   { code: '84', category: 'Air Traffic Control', description: 'ATC restriction due to destination weather' },
-  { code: '85', category: 'Air Traffic Control', description: 'Mandatory security' },
-  { code: '86', category: 'Air Traffic Control', description: 'Immigration, customs, or health' },
-  { code: '87', category: 'Air Traffic Control', description: 'Airport facilities, stands, ramp, buildings, or gate limitations' },
-  { code: '88', category: 'Air Traffic Control', description: 'Destination airport or runway restriction' },
-  { code: '89', category: 'Air Traffic Control', description: 'Departure airport or runway restriction' },
-  { code: '91', category: 'Miscellaneous', description: 'Passenger or load connection' },
-  { code: '92', category: 'Miscellaneous', description: 'Through check-in error' },
-  { code: '93', category: 'Miscellaneous', description: 'Aircraft rotation or late arrival from previous sector' },
-  { code: '94', category: 'Miscellaneous', description: 'Cabin crew rotation' },
-  { code: '95', category: 'Miscellaneous', description: 'Crew rotation' },
-  { code: '96', category: 'Miscellaneous', description: 'Operations control, rerouting, diversion, or consolidation' },
+  { code: '85', category: 'AIRPORT AND GOVERNMENTAL AUTHORITIES ', description: 'Mandatory security' },
+  { code: '86', category: 'AIRPORT AND GOVERNMENTAL AUTHORITIES ', description: 'Immigration, customs, or health' },
+  { code: '87', category: 'AIRPORT AND GOVERNMENTAL AUTHORITIES ', description: 'Airport facilities, stands, ramp, buildings, or gate limitations' },
+  { code: '88', category: 'AIRPORT AND GOVERNMENTAL AUTHORITIES ', description: 'Destination airport or runway restriction' },
+  { code: '89', category: 'AIRPORT AND GOVERNMENTAL AUTHORITIES ', description: 'Departure airport or runway restriction' },
+  { code: '91', category: 'Reactionary', description: 'Passenger or load connection' },
+  { code: '92', category: 'Reactionary', description: 'Through check-in error' },
+  { code: '93', category: 'Reactionary', description: 'Aircraft rotation or late arrival from previous sector' },
+  { code: '94', category: 'Reactionary', description: 'Cabin crew rotation' },
+  { code: '95', category: 'Reactionary', description: 'Crew rotation' },
+  { code: '96', category: 'Reactionary', description: 'Operations control, rerouting, diversion, or consolidation' },
   { code: '97', category: 'Miscellaneous', description: 'Industrial action within own airline' },
   { code: '98', category: 'Miscellaneous', description: 'Industrial action outside own airline, excluding ATS' },
   { code: '99', category: 'Miscellaneous', description: 'Miscellaneous, not elsewhere specified' },
@@ -91,3 +91,22 @@ export function getDelayCodeInfo(code: string): IataDelayCode | undefined {
   const clean = code.trim().toUpperCase();
   return IATA_DELAY_CODES.find(d => d.code === clean);
 }
+
+/** Normalises a delay code as typed at the station (e.g. " 41 " → "41"). */
+export function normalizeDelayCode(code: string): string {
+  return (code || '').trim().toUpperCase();
+}
+
+/**
+ * Returns the IATA category that owns a delay code, or `undefined` when the code
+ * is not part of the standard list (custom station codes fall into the first
+ * digit groups but have no published description).
+ */
+export function getDelayCodeCategory(code: string): string | undefined {
+  return getDelayCodeInfo(code)?.category;
+}
+
+/** Every distinct category, in the order the codes are declared (reporting order). */
+export const IATA_DELAY_CATEGORIES: string[] = Array.from(
+  new Set(IATA_DELAY_CODES.map((d) => d.category))
+);

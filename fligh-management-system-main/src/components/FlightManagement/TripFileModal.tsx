@@ -8,6 +8,7 @@ import {
   isTriangleFlight,
 } from '../../utils/flightUtils';
 import { getDelayCodeInfo } from '../../data/iataDelayCodes';
+import { DelayCodeTag } from '../Statistics/StatisticsHoverDetail';
 import { Plane, Printer, Download, X, Clock, Users, Luggage, AlertCircle, FileText } from 'lucide-react';
 
 interface TripFileModalProps {
@@ -308,7 +309,9 @@ ${flight.cancellationReason ? `\nCANCELLATION REASON:\n  ${flight.cancellationRe
                       const info = getDelayCodeInfo(d.code);
                       return (
                         <tr key={index}>
-                          <td className="p-2.5 font-mono font-bold text-amber-700 dark:text-amber-400">{d.code}</td>
+                          <td className="p-2.5">
+                            <DelayCodeTag code={d.code} variant="text" />
+                          </td>
                           <td className="p-2.5 font-mono text-slate-800 dark:text-slate-200">
                             {d.minutes} min ({formatMinutesToHHMM(d.minutes)})
                           </td>

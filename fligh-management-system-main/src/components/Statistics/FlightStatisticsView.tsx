@@ -6,9 +6,9 @@ import {
   getStatusBadgeStyle,
   getPassengerTotal,
 } from '../../utils/flightUtils';
-import { getDelayCodeInfo } from '../../data/iataDelayCodes';
+import { getDelayCodeCategory, getDelayCodeInfo } from '../../data/iataDelayCodes';
 import { FlightTrendsDashboard } from './FlightTrendsDashboard';
-import { HoverDetail, StatisticsDetailDrawer } from './StatisticsHoverDetail';
+import { HoverDetail, StatisticsDetailDrawer, DelayCodeTag } from './StatisticsHoverDetail';
 import {
   BarChart3,
   Calendar,
@@ -53,6 +53,8 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
     title: string;
     subtitle?: string;
     flights: Flight[];
+    /** When true the drawer is the single-flight "worst delay" report. */
+    singleDelay?: boolean;
   } | null>(null);
 
   const applyRangePreset = (preset: 'today' | 'week' | 'month' | 'year') => {
@@ -427,6 +429,26 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
       .sort((a, b) => b.totalMinutes - a.totalMinutes);
   }, [periodFlights]);
 
+  // Pool for the "Worst Single Delay" metric: every active (non-canceled)
+  // movement; only the longest single delay out of it is reported.
+  const activeFlightsList = useMemo(
+    () => periodFlights.filter((f) => f.flightStatus !== 'Canceled'),
+    [periodFlights]
+  );
+  // Only the single worst delayed flight is reported (not every delayed flight).
+  const worstDelayFlight = useMemo(
+    () =>
+      activeFlightsList.reduce<Flight | null>(
+        (worst, f) => ((f.delayMinutesTotal || 0) > (worst?.delayMinutesTotal || 0) ? f : worst),
+        null
+      ),
+    [activeFlightsList]
+  );
+  const worstDelayFlightsList = useMemo(
+    () => (worstDelayFlight ? [worstDelayFlight] : []),
+    [worstDelayFlight]
+  );
+
   const destinationReport = useMemo(() => {
     const map = new Map<string, { flights: number; canceled: number; pax: number; bags: number }>();
     periodFlights.forEach((f) => {
@@ -485,9 +507,12 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
         (total, f) => total + f.delays.filter((d) => d.code === code).reduce((minutes, d) => minutes + d.minutes, 0),
         0
       );
+      const info = getDelayCodeInfo(code);
       return {
         code,
-        description: getDelayCodeInfo(code)?.description || 'IATA delay code',
+        // 31-39 are all Handling codes; this also covers a station-typed variant.
+        category: info?.category || getDelayCodeCategory(code) || 'Handling',
+        description: info?.description || 'IATA delay code',
         affectedFlights: affectedFlights.length,
         totalMinutes,
         flights: affectedFlights.length,
@@ -507,8 +532,8 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
   // Delay-code lookup: which flights carry a given code (used by the delay/OTP reports).
   const flightsByDelayCode = (code: string) => completedFlightsList.filter((f) => f.delays.some((d) => d.code === code));
 
-  const openDrilldown = (title: string, subtitle: string, drills: Flight[]) => {
-    setDetailDrilldown({ title, subtitle, flights: drills });
+  const openDrilldown = (title: string, subtitle: string, drills: Flight[], singleDelay = false) => {
+    setDetailDrilldown({ title, subtitle, flights: drills, singleDelay });
   };
 
   // Handle Export All Reports to Excel CSV
@@ -575,9 +600,9 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
     csvContent += `\r\n`;
 
     // 7. OTP by IATA codes 31-39
-    csvContent += `7. OTP IMPACT (IATA CODES 31-39) - Overall OTP ${otp31To39Rate.toFixed(1)}%\r\nCode,Description,Affected Flights,Total Delay (min),Impact %\r\n`;
+    csvContent += `7. OTP IMPACT (IATA CODES 31-39) - Overall OTP ${otp31To39Rate.toFixed(1)}%\r\nCode,Category,Description,Affected Flights,Total Delay (min),Impact %\r\n`;
     delayOtpReport.forEach((o) => {
-      csvContent += `"${o.code}","${o.description}",${o.affectedFlights},${o.totalMinutes},${o.otpImpact.toFixed(1)}%\r\n`;
+      csvContent += `"${o.code}","${o.category}","${o.description}",${o.affectedFlights},${o.totalMinutes},${o.otpImpact.toFixed(1)}%\r\n`;
     });
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -870,13 +895,34 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
           <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
         </div>
 
-        <div className="p-3.5 glass-card-sub rounded-xl border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
+        <HoverDetail
+          title="Worst Single Delay"
+          subtitle={`Longest delay among ${activeFlightsList.length} active flights · ${dateFrom} → ${dateTo}`}
+          metrics={[
+            { label: 'Worst', value: `${stats.worstDelayMinutes} min`, tone: 'rose' },
+            { label: 'Flight', value: worstDelayFlight?.inboundFlightNumber || '—', tone: 'sky' },
+            { label: 'Airline', value: worstDelayFlight?.airlineName || '—' },
+            { label: 'Active flights', value: String(activeFlightsList.length) },
+          ]}
+          flights={worstDelayFlightsList}
+          previewLimit={1}
+          flightNote={(f) => (f.delayMinutesTotal ? `${f.delayMinutesTotal}m` : null)}
+          onExplore={() => openDrilldown(
+            'Worst Single Delay',
+            `${stats.worstDelayMinutes} min · ${worstDelayFlight?.inboundFlightNumber || '—'} ${
+              worstDelayFlight?.airlineName || ''
+            }`,
+            worstDelayFlightsList,
+            true
+          )}
+          className="p-3.5 glass-card-sub rounded-xl border border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md"
+        >
           <div>
             <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Worst Single Delay</span>
             <span className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono">{stats.worstDelayMinutes} min</span>
           </div>
           <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
-        </div>
+        </HoverDetail>
 
         <div className="p-3.5 glass-card-sub rounded-xl border-slate-200 dark:border-white/10 flex items-center justify-between backdrop-blur-md">
           <div>
@@ -1105,7 +1151,14 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                     </tr>
                     <tr className="bg-slate-50 dark:bg-white/5">
                       <td className="p-3 font-sans font-semibold text-slate-700 dark:text-slate-300">🚦 Worst Single Delay</td>
-                      <td className="p-3 text-right font-bold text-rose-700 dark:text-rose-300">{stats.worstDelayMinutes} min</td>
+                      <td className="p-3 text-right font-bold text-rose-700 dark:text-rose-300">
+                        {stats.worstDelayMinutes} min
+                        {worstDelayFlight && (
+                          <span className="ml-1.5 font-normal text-slate-500 dark:text-slate-400">
+                            ({worstDelayFlight.inboundFlightNumber} · {worstDelayFlight.airlineName})
+                          </span>
+                        )}
+                      </td>
                     </tr>
                     <tr className="bg-slate-50 dark:bg-white/5">
                       <td className="p-3 font-sans font-semibold text-slate-700 dark:text-slate-300">⏳ In-Progress Movements</td>
@@ -1494,7 +1547,14 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
             </div>
             <table className="w-full text-xs text-left">
               <thead className="bg-slate-100/80 dark:bg-white/5 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-white/10">
-                <tr><th className="p-3">Code</th><th className="p-3">Description</th><th className="p-3 text-right">Affected Flights</th><th className="p-3 text-right">Total Delay</th><th className="p-3 text-right">Impact</th></tr>
+                <tr>
+                  <th className="p-3 w-20">Code</th>
+                  <th className="p-3 w-44">IATA Category</th>
+                  <th className="p-3">Standard Description</th>
+                  <th className="p-3 text-right">Affected Flights</th>
+                  <th className="p-3 text-right">Total Delay</th>
+                  <th className="p-3 text-right">Impact</th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                 {delayOtpReport.map((item) => (
@@ -1522,7 +1582,10 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                       )
                     }
                   >
-                    <td className="p-3 font-mono font-bold text-amber-700 dark:text-amber-400">{item.code}</td>
+                    <td className="p-3">
+                      <DelayCodeTag code={item.code} variant="text" />
+                    </td>
+                    <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">{item.category}</td>
                     <td className="p-3 text-slate-700 dark:text-slate-300">{item.description}</td>
                     <td className="p-3 text-right font-mono">{item.flights}</td>
                     <td className="p-3 text-right font-mono">{item.totalMinutes} min</td>
@@ -1582,7 +1645,9 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
                         )
                       }
                     >
-                      <td className="p-3 font-mono font-bold text-amber-700 dark:text-amber-400">{d.code}</td>
+                      <td className="p-3">
+                        <DelayCodeTag code={d.code} variant="text" />
+                      </td>
                       <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">{d.category}</td>
                       <td className="p-3 text-slate-600 dark:text-slate-300">{d.description}</td>
                       <td className="p-3 font-mono text-right text-slate-800 dark:text-slate-200">{d.occurrences}</td>
@@ -1606,6 +1671,7 @@ export const FlightStatisticsView: React.FC<FlightStatisticsViewProps> = ({ flig
         title={detailDrilldown?.title || ''}
         subtitle={detailDrilldown?.subtitle}
         flights={detailDrilldown?.flights || []}
+        singleDelay={detailDrilldown?.singleDelay}
       />
     </div>
   );
